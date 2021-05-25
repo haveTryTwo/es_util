@@ -70,8 +70,15 @@
 ./main -cfgpath ./conf/HaveTryTwo_First_One/SetIndiceSettings.cfg
 ```
 
+### 1.9.1 GetIndiceSettings
+说明：获取多个索引的setting信息
+```
+./main -cfgpath ./conf/HaveTryTwo_First_One/GetIndiceSettings.cfg
+```
+
+
 ### 1.10 GetIndiceMapping
-说明：获取索引的mapping信息
+说明：获取多个索引的mapping信息
 ```
 ./main -cfgpath ./conf/HaveTryTwo_First_One/GetIndiceMapping.cfg
 ```

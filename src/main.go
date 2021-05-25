@@ -375,6 +375,45 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			}
 			log.Printf("[End] to recovery unhealth index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
 		}
+    case base_tool.GetIndiceSettings:
+		// 获取待处理的索引列表
+		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		if !ok {
+			log.Printf("Not exist:%v", base_tool.IndicesPath)
+			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+		}
+		var indicesPath string
+		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
+			indicesPath = cmdCfgDir + indicesFile // 使用相对路径
+		} else if strings.Index(strings.Trim(indicesFile, " "), "/") == 0 {
+			indicesPath = indicesFile // 使用绝对路径
+		} else {
+			log.Printf("Invalid path:%v", indicesFile)
+		}
+		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		indiceLines, err := base_tool.GetLines(indicesContent)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+
+		// 处理每一个索引
+		for _, indiceName := range indiceLines {
+			log.Printf("[Begin] to get settings of index:%v \n", indiceName)
+            _, mappingStr, err := compositeOp.GetIndexSettings(indiceName)
+            if err != nil {
+                log.Printf("err:%v", err)
+                return err
+            }
+
+            log.Printf("settings of %v is:\n%v", indiceName, mappingStr)
+
+			log.Printf("[End] to get settings of index:%v\n", indiceName)
+		}
 	case base_tool.SetIndiceSettings:
 		// 获取待处理的索引列表
 		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
@@ -439,19 +478,44 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			log.Printf("[End] to set settings of index:%v of cluster:%v\n", indiceName, clusterName)
 		}
 	case base_tool.GetIndiceMapping:
-		// 读取当前请求命令
-		indexName, ok := cmdConfigs[base_tool.IndexName]
+		// 获取待处理的索引列表
+		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndexName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndexName}
+			log.Printf("Not exist:%v", base_tool.IndicesPath)
+			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
 		}
-		_, mappingStr, err := compositeOp.GetIndexMapping(indexName)
+		var indicesPath string
+		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
+			indicesPath = cmdCfgDir + indicesFile // 使用相对路径
+		} else if strings.Index(strings.Trim(indicesFile, " "), "/") == 0 {
+			indicesPath = indicesFile // 使用绝对路径
+		} else {
+			log.Printf("Invalid path:%v", indicesFile)
+		}
+		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		indiceLines, err := base_tool.GetLines(indicesContent)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
-		log.Printf("mapping of %v is:\n%v", indexName, mappingStr)
+		// 处理每一个索引
+		for _, indiceName := range indiceLines {
+			log.Printf("[Begin] to get mapping of index:%v \n", indiceName)
+            _, mappingStr, err := compositeOp.GetIndexMapping(indiceName)
+            if err != nil {
+                log.Printf("err:%v", err)
+                return err
+            }
+
+            log.Printf("mapping of %v is:\n%v", indiceName, mappingStr)
+
+			log.Printf("[End] to get mapping of index:%v\n", indiceName)
+		}
 	case base_tool.SetIndiceMapping:
 		// 获取待处理的索引列表
 		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
