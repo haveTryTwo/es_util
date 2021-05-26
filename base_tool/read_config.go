@@ -74,7 +74,7 @@ func ReadAllLinesInFile(filePath string) ([]string, error) { // {{{
 
 		str := strings.TrimSpace(string(line))
 		// ignore comments
-		if strings.HasPrefix(str, "#") {
+		if str == "" || strings.HasPrefix(str, "#") {
 			continue
 		}
 

@@ -201,12 +201,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -256,12 +262,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -390,12 +402,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -429,12 +447,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -492,12 +516,17 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -531,12 +560,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -602,12 +637,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -689,12 +730,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -732,12 +779,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		indiceLines, err := base_tool.GetLines(indicesContent)
+//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+//		indiceLines, err := base_tool.GetLines(indicesContent)
+//		if err != nil {
+//			log.Printf("err:%v", err)
+//			return err
+//		}
+
+		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err

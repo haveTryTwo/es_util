@@ -2,8 +2,8 @@
 提供ES相关的操作，方便对ES自动化运营管理
 
 ## 编译
-1、`download`源码后，根目录执行 `go mod init es_util`
-2、执行`go build src/main.go`生成对应main的命令行
+1. `download`源码后，根目录执行 `go mod init es_util`
+2. 执行`go build src/main.go`生成对应main的命令行
 
 ## 操作
 操作命令: `./main -cfgpath  config_path`，其中`config_path`说明：

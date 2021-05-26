@@ -33,6 +33,7 @@ const (
 	GetCloseIndices               = "GetCloseIndices"
 	RecoveryUnhealthIndices       = "RecoveryUnhealthIndices"
 	SetIndiceSettings             = "SetIndiceSettings"
+	GetIndiceSettings             = "GetIndiceSettings"
 	GetIndiceMapping              = "GetIndiceMapping"
 	SetIndiceMapping              = "SetIndiceMapping"
 	DataSink                      = "DataSink"
