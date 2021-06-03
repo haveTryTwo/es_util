@@ -1,4 +1,4 @@
-// base tool of es
+// Package basetool implements a tool of es
 package basetool
 
 import (
@@ -117,4 +117,15 @@ func GetLines(content []byte) ([]string, error) { // {{{
 	}
 
 	return returnLines, nil
+} // }}}
+
+// Check whether key exist in arr
+func CheckExist(key string, arr []string) bool { // {{{
+	for _, v := range arr {
+		if key == v {
+			return true
+		}
+	}
+
+	return false
 } // }}}

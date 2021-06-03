@@ -1,4 +1,4 @@
-// base tool of es
+// Package basetool implements a tool of es
 package basetool
 
 import (
@@ -192,20 +192,7 @@ func (compositeOp *CompositeOp) GetClusterSettings() (map[string]interface{}, er
 	return respMap, nil
 } // }}}
 
-// Get special setting of cluster
-func (compositeOp *CompositeOp) GetClusterSettingsOfKey(key string) (interface{}, error) { // {{{
-	if key == "" {
-		return nil, Error{Code: ErrInvalidParam, Message: "key is nil"}
-	}
-
-	respMap, err := compositeOp.GetClusterSettings()
-	if err != nil {
-		log.Printf("Failed to get _cluster/settings?pretty, err:%v\n", err.Error())
-		return nil, err
-	}
-
-	keyTerms := strings.Split(strings.Trim(string(key), " "), ".")
-
+func getValueOfKeyPath(key string, keyTerms []string, respMap map[string]interface{}) (interface{}, error) { // {{{
 	var subRespMap interface{} = respMap
 	for _, keyTerm := range keyTerms {
 		switch subRespMap.(type) {
@@ -231,20 +218,30 @@ func (compositeOp *CompositeOp) GetClusterSettingsOfKey(key string) (interface{}
 			}
 		}
 	}
-	// log.Printf("key:%v, value:%v", key, subRespMap)
 
 	return subRespMap, nil
 } // }}}
 
-// Get indice settings
-func (compositeOp *CompositeOp) GetIndexSettings(indexName string) (map[string]interface{}, string, error) { // {{{
-	if indexName == "" {
-		return nil, "", Error{Code: ErrInvalidParam, Message: "key is nil"}
+// Get special setting of cluster
+func (compositeOp *CompositeOp) GetClusterSettingsOfKey(key string) (interface{}, error) { // {{{
+	if key == "" {
+		return nil, Error{Code: ErrInvalidParam, Message: "key is nil"}
 	}
 
-	respByte, err := compositeOp.EsOp.Get(indexName + "/_settings?pretty")
+	respMap, err := compositeOp.GetClusterSettings()
 	if err != nil {
-		log.Printf("Failed to get index settings?pretty, err:%v\n", err.Error())
+		log.Printf("Failed to get _cluster/settings?pretty, err:%v\n", err.Error())
+		return nil, err
+	}
+
+	keyTerms := strings.Split(strings.Trim(string(key), " "), ".")
+	return getValueOfKeyPath(key, keyTerms, respMap)
+} // }}}
+
+func (compositeOp *CompositeOp) getInfoInternal(url string) (map[string]interface{}, string, error) { // {{{
+	respByte, err := compositeOp.EsOp.Get(url)
+	if err != nil {
+		log.Printf("Failed to get %v?pretty, err:%v\n", url, err.Error())
 		return nil, "", err
 	}
 	// log.Printf("%v/_settings:%v", indexName, string(respByte))
@@ -262,6 +259,21 @@ func (compositeOp *CompositeOp) GetIndexSettings(indexName string) (map[string]i
 	}
 
 	return respMap, string(respByte), nil
+} // }}}
+
+func (compositeOp *CompositeOp) getIndexInfoInternal(indexName string,
+	uri string) (map[string]interface{}, string, error) { // {{{
+
+	if indexName == "" {
+		return nil, "", Error{Code: ErrInvalidParam, Message: "key is nil"}
+	}
+
+	return compositeOp.getInfoInternal(indexName + uri)
+} // }}}
+
+// Get indice settings
+func (compositeOp *CompositeOp) GetIndexSettings(indexName string) (map[string]interface{}, string, error) { // {{{
+	return compositeOp.getIndexInfoInternal(indexName, "/_settings?pretty")
 } // }}}
 
 // Get specail setting of indice
@@ -284,62 +296,12 @@ func (compositeOp *CompositeOp) GetIndexSettingsOfKey(indexName string, key stri
 		keyTerms = append(keyTerms, tmpTerm)
 	}
 
-	var subRespMap interface{} = respMap
-	for _, keyTerm := range keyTerms {
-		switch subRespMap.(type) {
-		case map[string]interface{}:
-			subRespMap = subRespMap.(map[string]interface{})[keyTerm]
-		case []interface{}:
-			index, err := strconv.Atoi(keyTerm)
-			if err != nil {
-				return nil, Error{Code: ErrAtoiFailed, Message: "keyTerm not int: " + keyTerm + ", while settings is array"}
-			}
-			if index >= len(subRespMap.([]interface{})) {
-				return nil, Error{Code: ErrInvalidIndex, Message: "index too large: " + keyTerm + ", while size of array:" +
-					strconv.Itoa(len(subRespMap.([]interface{})))}
-			}
-
-			subRespMap = subRespMap.([]interface{})[index]
-		default:
-			if subRespMap == nil {
-				return nil, Error{Code: ErrNotFound, Message: "Not found! key:" + key + ", termKey:" + keyTerm}
-			} else {
-				return nil, Error{Code: ErrNotFound, Message: "Not found! key:" + key + ", termKey:" + keyTerm + ", resp type:" +
-					(reflect.TypeOf(subRespMap)).Name()}
-			}
-		}
-	}
-	//    log.Printf("key:%v, value:%v", key, subRespMap)
-
-	return subRespMap, nil
+	return getValueOfKeyPath(key, keyTerms, respMap)
 } // }}}
 
 // Get indice mapping
 func (compositeOp *CompositeOp) GetIndexMapping(indexName string) (map[string]interface{}, string, error) { // {{{
-	if indexName == "" {
-		return nil, "", Error{Code: ErrInvalidParam, Message: "key is nil"}
-	}
-
-	respByte, err := compositeOp.EsOp.Get(indexName + "/_mapping/_doc?pretty")
-	if err != nil {
-		log.Printf("Failed to get index mapping?pretty, err:%v\n", err.Error())
-		return nil, "", err
-	}
-	// log.Printf("%v/_settings:%v", indexName, string(respByte))
-
-	var respMap map[string]interface{}
-	err = json.Unmarshal(respByte, &respMap)
-	if err != nil {
-		log.Printf("Failed to parse json?pretty, err:%v", err.Error())
-		return nil, string(respByte), Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
-	}
-	// log.Printf("%v/_settings: %v", indexName, respMap)
-
-	if respMap["error"] != nil || respMap["status"] != nil {
-		return respMap, string(respByte), Error{Code: ErrRespErr, Message: "Resp error:" + string(respByte)}
-	}
-
-	return respMap, string(respByte), nil
+	return compositeOp.getIndexInfoInternal(indexName, "/_mapping/_doc?pretty")
 } // }}}
 
 func (compositeOp *CompositeOp) setIndexInternal(indexName string, uri string, params string) error { // {{{
@@ -419,29 +381,13 @@ func (compositeOp *CompositeOp) createIndexInternal(indexName string) error { //
 
 // Get recovery infomation of cluster
 func (compositeOp *CompositeOp) GetRecoveryInfo() (map[string]interface{}, string, error) { // {{{
-	respByte, err := compositeOp.EsOp.Get("_recovery?active_only=true&pretty")
-	if err != nil {
-		log.Printf("Failed to get recovery info?pretty, err:%v\n", err.Error())
-		return nil, "", err
-	}
-
-	var respMap map[string]interface{}
-	err = json.Unmarshal(respByte, &respMap)
-	if err != nil {
-		log.Printf("Failed to parse json?pretty, err:%v", err.Error())
-		return nil, string(respByte), Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
-	}
-
-	if respMap["error"] != nil || respMap["status"] != nil {
-		return respMap, string(respByte), Error{Code: ErrRespErr, Message: "Resp error:" + string(respByte)}
-	}
-
-	return respMap, string(respByte), nil
+	return compositeOp.getInfoInternal("_recovery?active_only=true&pretty")
 } // }}}
 
 // First set allocation on so indice could be recovery
 // Second set allocation off
-func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexName string, waitSeconds int) error { // {{{
+func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexName string,
+	waitSeconds int) error { // {{{
 	if clusterName == "" || indexName == "" || waitSeconds <= 0 {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or index name or waitSeconds is nil"}
 	}

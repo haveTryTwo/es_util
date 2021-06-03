@@ -1,10 +1,15 @@
-// base tool of es
+// Package basetool implements a tool of es
 package basetool
 
 const (
 	Green  = "green"
 	Yellow = "yellow"
-	Red    = "Red"
+	Red    = "red"
+
+	GET    = "GET"
+	PUT    = "PUT"
+	POST   = "POST"
+	DELETE = "DELETE"
 
 	Open  = "open"
 	Close = "close"
@@ -32,6 +37,7 @@ const (
 	CreateIndices                 = "CreateIndices"
 	GetUnhealthIndicesWithNoClose = "GetUnhealthIndicesWithNoClose"
 	GetCloseIndices               = "GetCloseIndices"
+	GetWholeIndices               = "GetWholeIndices"
 	RecoveryUnhealthIndices       = "RecoveryUnhealthIndices"
 	SetIndiceSettings             = "SetIndiceSettings"
 	GetIndiceSettings             = "GetIndiceSettings"

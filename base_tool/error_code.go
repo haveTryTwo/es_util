@@ -1,4 +1,4 @@
-// base tool of es
+// Package basetool implements a tool of es
 package basetool
 
 import (

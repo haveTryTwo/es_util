@@ -58,6 +58,12 @@
 ./main -cfgpath ./conf/HaveTryTwo_First_One/GetCloseIndices.cfg
 ```
 
+### 1.7.1 GetWholeIndices
+说明：获取集群中所有的索引
+```
+./main -cfgpath ./conf/HaveTryTwo_First_One/GetWholeIndices.cfg
+```
+
 ### 1.8 RecoveryUnhealthIndices
 说明：恢复Unhealth的索引
 ```
