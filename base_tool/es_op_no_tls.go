@@ -21,27 +21,7 @@ func (esOpNoTls *EsOpNoTls) opInternal(op string, uri string, body io.Reader) ([
 	}
 
 	url := "http://" + esOpNoTls.IpPort + "/" + uri
-	req, err := http.NewRequest(op, url, body)
-	if err != nil {
-		return nil, Error{Code: ErrNewRequestFailed, Message: err.Error()}
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		log.Printf("url:%v, err:%v", url, err.Error())
-		return nil, Error{Code: ErrHttpDoFailed, Message: err.Error()}
-	}
-
-	defer resp.Body.Close()
-
-	respByte, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("url:%v, err:%v", url, err.Error())
-		return nil, Error{Code: ErrIoUtilReadAllFailed, Message: err.Error()}
-	}
-
-	return respByte, nil
+	return httpReqInternal(op, url, body, &http.Client{})
 } // }}}
 
 // Get interface of http
@@ -57,4 +37,33 @@ func (esOpNoTls *EsOpNoTls) Put(uri string, params string) ([]byte, error) { // 
 // Post interface of http
 func (esOpNoTls *EsOpNoTls) Post(uri string, params string) ([]byte, error) { // {{{
 	return esOpNoTls.opInternal(POST, uri, strings.NewReader(params))
+} // }}}
+
+// Delete interface of http
+func (esOpNoTls *EsOpNoTls) Delete(uri string) ([]byte, error) { // {{{
+	return esOpNoTls.opInternal(DELETE, uri, nil)
+} // }}}
+
+func httpReqInternal(op string, url string, body io.Reader, client *http.Client) ([]byte, error) { // {{{
+	req, err := http.NewRequest(op, url, body)
+	if err != nil {
+		return nil, Error{Code: ErrNewRequestFailed, Message: err.Error()}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("url:%v, err:%v", url, err.Error())
+		return nil, Error{Code: ErrHttpDoFailed, Message: err.Error()}
+	}
+
+	defer resp.Body.Close()
+
+	respByte, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("url:%v, err:%v", url, err.Error())
+		return nil, Error{Code: ErrIoUtilReadAllFailed, Message: err.Error()}
+	}
+
+	return respByte, nil
 } // }}}

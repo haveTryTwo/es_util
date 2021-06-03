@@ -47,4 +47,5 @@ const (
 	GetCurrentRecovery            = "GetCurrentRecovery"
 	CloseIndices                  = "CloseIndices"
 	OpenIndices                   = "OpenIndices"
+	DeleteClosedIndices           = "DeleteClosedIndices"
 )

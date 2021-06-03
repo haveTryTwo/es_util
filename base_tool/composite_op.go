@@ -635,6 +635,69 @@ func (compositeOp *CompositeOp) OpenIndice(clusterName, indexName string) error 
 	return nil
 } // }}}
 
+func (compositeOp *CompositeOp) deleteIndexInternal(indexName string, uri string) error { // {{{
+	if indexName == "" || uri == "" {
+		return Error{Code: ErrInvalidParam, Message: "index name or uri is nil"}
+	}
+
+	respByte, err := compositeOp.EsOp.Delete(indexName + uri)
+	if err != nil {
+		log.Printf("Failed to delete %v?pretty, err:%v\n", indexName, err.Error())
+		return err
+	}
+	log.Printf("Resp of delete %v%v, %v", indexName, uri, string(respByte))
+
+	var respMap map[string]interface{}
+	err = json.Unmarshal(respByte, &respMap)
+	if err != nil {
+		log.Printf("Failed to delete %v%v, err:%v\n", indexName, uri, err.Error())
+		return Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
+	}
+
+	if respMap["error"] != nil || respMap["status"] != nil {
+		return Error{Code: ErrRespErr, Message: "Resp of error:" + string(respByte)}
+	}
+
+	return nil
+} // }}}
+
+// Delete close indice
+func (compositeOp *CompositeOp) DeleteClosedIndice(clusterName, indexName string) error { // {{{
+	if clusterName == "" || indexName == "" {
+		return Error{Code: ErrInvalidParam, Message: "cluster name or index name is nil"}
+	}
+	exist, err := compositeOp.CheckClusterName(clusterName)
+	if err != nil {
+		log.Printf("Failed to checkClusterName:%v\n", err.Error())
+		return err
+	}
+
+	if exist == false {
+		log.Printf("Not exist of cluste_name:%v\n", clusterName)
+		return Error{Code: ErrNotFound, Message: "Not found cluster_name:" + clusterName}
+	}
+
+	indicesInfo, err := compositeOp.GetIndice(indexName)
+	if err != nil {
+		log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
+		return err
+	}
+
+	if indicesInfo[0].Status != Close {
+		log.Printf("Indices %v not closed:%v\n", indexName, indicesInfo[0].Status)
+		return Error{Code: ErrNotClosed,
+			Message: "Not closed of " + indexName + " which Status is " + indicesInfo[0].Status}
+	}
+
+	err = compositeOp.deleteIndexInternal(indexName, "?expand_wildcards=closed&pretty")
+	if err != nil {
+		log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
+		return err
+	}
+
+	return nil
+} // }}}
+
 // Get the difference of two string
 func Diff(prefixName string, before, after string) error { // {{{
 	logDir := "./log/" + time.Now().Format("20060102")

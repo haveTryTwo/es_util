@@ -35,6 +35,8 @@ const (
 	ErrAtoiFailed = -10500
 
 	ErrRespErr = -10600
+
+	ErrNotClosed = -10700
 )
 
 // error including code and message

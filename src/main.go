@@ -735,6 +735,45 @@ func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonCo
 			}
 			log.Printf("[End] to open index:%v of cluster:%v\n", indiceName, clusterName)
 		}
+	case basetool.DeleteClosedIndices:
+		// 获取待处理的索引列表
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
+		if !ok {
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
+		}
+		var indicesPath string
+		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
+			indicesPath = cmdCfgDir + indicesFile // 使用相对路径
+		} else if strings.Index(strings.Trim(indicesFile, " "), "/") == 0 {
+			indicesPath = indicesFile // 使用绝对路径
+		} else {
+			log.Printf("Invalid path:%v", indicesFile)
+		}
+
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+
+		// 读取集群名称
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
+		if !ok {
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
+		}
+
+		// 处理每一个索引
+		for _, indiceName := range indiceLines {
+			log.Printf("[Begin] to delete closed index:%v of cluster:%v\n", indiceName, clusterName)
+			err = compositeOp.DeleteClosedIndice(clusterName, indiceName)
+			if err != nil {
+				log.Printf("err:%v", err)
+				return err
+			}
+			log.Printf("[End] to delete closed index:%v of cluster:%v\n", indiceName, clusterName)
+		}
 	default:
 		log.Printf("Invalid cmd:%v", cmd)
 		return basetool.Error{Code: basetool.ErrInvalidParam, Message: "Invalid cmd" + cmd}

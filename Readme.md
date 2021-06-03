@@ -118,3 +118,9 @@
 ```
 ./main -cfgpath ./conf/HaveTryTwo_First_One/OpenIndices.cfg
 ```
+
+### 1.15 DeleteClosedIndices
+说明：删除一批关闭的索引
+```
+./main -cfgpath ./conf/HaveTryTwo_First_One/DeleteClosedIndices.cfg
+```
