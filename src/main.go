@@ -1,7 +1,7 @@
 package main
 
 import (
-	"es_util/base_tool"
+	basetool "es_util/base_tool"
 	"flag"
 	"fmt"
 	"log"
@@ -45,7 +45,7 @@ func main() { // {{{
 
 	cmdCfgDir, fileName := filepath.Split(cmdCfgPath)
 	log.Printf("paths:%v, fileName:%v", cmdCfgDir, fileName)
-	isDir, err := base_tool.IsDir(cmdCfgDir)
+	isDir, err := basetool.IsDir(cmdCfgDir)
 	if err != nil {
 		log.Printf("err:%v", err)
 		return
@@ -56,7 +56,7 @@ func main() { // {{{
 	}
 
 	// 读取当前的命令文件
-	configs, err := base_tool.ReadCfgFile(cmdCfgPath)
+	configs, err := basetool.ReadCfgFile(cmdCfgPath)
 	if err != nil {
 		log.Printf("err:%v", err)
 		return
@@ -64,16 +64,16 @@ func main() { // {{{
 	//    log.Printf("configs:%v", configs)
 
 	// 读取当前请求命令
-	cmd, ok := configs[base_tool.Cmd]
+	cmd, ok := configs[basetool.Cmd]
 	if !ok {
-		log.Printf("Not exist:%v", base_tool.Cmd)
+		log.Printf("Not exist:%v", basetool.Cmd)
 		return
 	}
 	//    log.Printf("cmd:%v", cmd)
 
-	commonFile, ok := configs[base_tool.CommonFile]
+	commonFile, ok := configs[basetool.CommonFile]
 	if !ok {
-		log.Printf("Not exist:%v", base_tool.CommonFile)
+		log.Printf("Not exist:%v", basetool.CommonFile)
 		return
 	}
 
@@ -86,7 +86,7 @@ func main() { // {{{
 	} else {
 		log.Printf("Invalid path:%v", commonFile)
 	}
-	commonConfigs, err := base_tool.ReadCfgFile(commonPath)
+	commonConfigs, err := basetool.ReadCfgFile(commonPath)
 	if err != nil {
 		log.Printf("Failed to read:%v", commonPath)
 		return
@@ -94,46 +94,46 @@ func main() { // {{{
 	//    log.Printf("commonConfigs:%v", commonConfigs)
 
 	// http 或者 https 请求
-	requestProto, ok := commonConfigs[base_tool.RequestProto]
+	requestProto, ok := commonConfigs[basetool.RequestProto]
 	if !ok {
-		log.Printf("Not exist:%v", base_tool.RequestProto)
+		log.Printf("Not exist:%v", basetool.RequestProto)
 		return
 	}
-	ipport, ok := commonConfigs[base_tool.IPPort]
+	ipport, ok := commonConfigs[basetool.IPPort]
 	if !ok {
-		log.Printf("Not exist:%v", base_tool.IPPort)
+		log.Printf("Not exist:%v", basetool.IPPort)
 		return
 	}
 
-	var baseEsOp base_tool.BaseEsOp
+	var baseEsOp basetool.BaseEsOp
 	switch requestProto {
-	case base_tool.Http:
-		baseEsOp = &base_tool.EsOpNoTls{IpPort: ipport}
-	case base_tool.Https:
-		clientCertFile, ok := commonConfigs[base_tool.ClientCertFile]
+	case basetool.Http:
+		baseEsOp = &basetool.EsOpNoTls{IpPort: ipport}
+	case basetool.Https:
+		clientCertFile, ok := commonConfigs[basetool.ClientCertFile]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClientCertFile)
+			log.Printf("Not exist:%v", basetool.ClientCertFile)
 			return
 		}
-		clientKeyFile, ok := commonConfigs[base_tool.ClientKeyFile]
+		clientKeyFile, ok := commonConfigs[basetool.ClientKeyFile]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClientKeyFile)
+			log.Printf("Not exist:%v", basetool.ClientKeyFile)
 			return
 		}
-		caCertFile, ok := commonConfigs[base_tool.CaCertFile]
+		caCertFile, ok := commonConfigs[basetool.CaCertFile]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.CaCertFile)
+			log.Printf("Not exist:%v", basetool.CaCertFile)
 			return
 		}
 
-		baseEsOp = &base_tool.EsOpWithTls{IpPort: ipport, ClientCertFile: clientCertFile,
+		baseEsOp = &basetool.EsOpWithTls{IpPort: ipport, ClientCertFile: clientCertFile,
 			ClientKeyFile: clientKeyFile, CaCertFile: caCertFile}
 	default:
 		log.Printf("Invalid requestProto:%v", requestProto)
 		return
 	}
 
-	compositeOp := base_tool.Create(baseEsOp)
+	compositeOp := basetool.Create(baseEsOp)
 
 	err = execCmd(cmd, compositeOp, configs, commonConfigs, cmdCfgDir)
 	if err != nil {
@@ -144,22 +144,22 @@ func main() { // {{{
 	execStatusSuccess = true
 } // }}}
 
-func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonConfigs map[string]string, cmdCfgDir string) error { // {{{
+func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonConfigs map[string]string, cmdCfgDir string) error { // {{{
 	// 执行命令
 	switch cmd {
-	case base_tool.GetClusterHealth:
+	case basetool.GetClusterHealth:
 		_, respJson, err := compositeOp.GetClusterHealth()
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 		log.Printf("%v", respJson)
-	case base_tool.CheckClusterName:
+	case basetool.CheckClusterName:
 		// 读取当前请求命令
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 		isExist, err := compositeOp.CheckClusterName(clusterName)
 		if err != nil {
@@ -172,12 +172,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("[Not Equal] cluster name not equal to %v", clusterName)
 		}
-	case base_tool.GetIndiceStatus:
+	case basetool.GetIndiceStatus:
 		// 读取当前请求命令
-		indexName, ok := cmdConfigs[base_tool.IndexName]
+		indexName, ok := cmdConfigs[basetool.IndexName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndexName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndexName}
+			log.Printf("Not exist:%v", basetool.IndexName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndexName}
 		}
 		indiceInfo, err := compositeOp.GetIndice(indexName)
 		if err != nil {
@@ -186,12 +186,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		}
 
 		log.Printf("%v", indiceInfo)
-	case base_tool.SetIndiceAllocationOnAndOff:
+	case basetool.SetIndiceAllocationOnAndOff:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -201,40 +201,40 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 读取等待时间
-		waitSecondsString, ok := cmdConfigs[base_tool.WaitSeconds]
+		waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
 		if !ok {
-			log.Printf("Not exist:%v, then using 10 second as default", base_tool.WaitSeconds)
+			log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
 			waitSecondsString = "10"
 		}
 
 		waitSeconds, err := strconv.Atoi(waitSecondsString)
 		if err != nil {
-			return base_tool.Error{Code: base_tool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+			return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
 		}
 
 		// 处理每一个索引
@@ -247,12 +247,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			}
 			log.Printf("[End] to set allocaion on and off index:%v of cluster:%v\n", indiceName, clusterName)
 		}
-	case base_tool.CreateIndices:
+	case basetool.CreateIndices:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -262,40 +262,40 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 读取等待时间
-		waitSecondsString, ok := cmdConfigs[base_tool.WaitSeconds]
+		waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
 		if !ok {
-			log.Printf("Not exist:%v, then using 10 second as default", base_tool.WaitSeconds)
+			log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
 			waitSecondsString = "10"
 		}
 
 		waitSeconds, err := strconv.Atoi(waitSecondsString)
 		if err != nil {
-			return base_tool.Error{Code: base_tool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+			return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
 		}
 
 		// 处理每一个索引
@@ -308,15 +308,15 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			}
 			log.Printf("[End] to create index:%v of cluster:%v\n", indiceName, clusterName)
 		}
-	case base_tool.GetUnhealthIndicesWithNoClose:
+	case basetool.GetUnhealthIndicesWithNoClose:
 		indicesInfo, err := compositeOp.GetIndices()
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
-		nohealthIndices := make([]base_tool.IndiceInfo, 0)
+		nohealthIndices := make([]basetool.IndiceInfo, 0)
 		for _, indiceInfo := range indicesInfo {
-			if indiceInfo.Status != base_tool.Close && indiceInfo.Health != base_tool.Green {
+			if indiceInfo.Status != basetool.Close && indiceInfo.Health != basetool.Green {
 				nohealthIndices = append(nohealthIndices, indiceInfo)
 			}
 		}
@@ -327,15 +327,15 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			printStr = append(printStr, tmp)
 		}
 		log.Printf("\n%s", printStr)
-	case base_tool.GetCloseIndices:
+	case basetool.GetCloseIndices:
 		indicesInfo, err := compositeOp.GetIndices()
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
-		closeIndices := make([]base_tool.IndiceInfo, 0)
+		closeIndices := make([]basetool.IndiceInfo, 0)
 		for _, indiceInfo := range indicesInfo {
-			if indiceInfo.Status == base_tool.Close {
+			if indiceInfo.Status == basetool.Close {
 				closeIndices = append(closeIndices, indiceInfo)
 			}
 		}
@@ -346,36 +346,36 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			printStr = append(printStr, tmp)
 		}
 		log.Printf("\n%s", printStr)
-	case base_tool.RecoveryUnhealthIndices:
+	case basetool.RecoveryUnhealthIndices:
 		indicesInfo, err := compositeOp.GetIndices()
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
-		nohealthIndices := make([]base_tool.IndiceInfo, 0)
+		nohealthIndices := make([]basetool.IndiceInfo, 0)
 		for _, indiceInfo := range indicesInfo {
-			if indiceInfo.Status != base_tool.Close && indiceInfo.Health != base_tool.Green {
+			if indiceInfo.Status != basetool.Close && indiceInfo.Health != basetool.Green {
 				nohealthIndices = append(nohealthIndices, indiceInfo)
 			}
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 读取等待时间
-		waitSecondsString, ok := cmdConfigs[base_tool.WaitSeconds]
+		waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
 		if !ok {
-			log.Printf("Not exist:%v, then using 10 second as default", base_tool.WaitSeconds)
+			log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
 			waitSecondsString = "10"
 		}
 
 		waitSeconds, err := strconv.Atoi(waitSecondsString)
 		if err != nil {
-			return base_tool.Error{Code: base_tool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+			return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
 		}
 
 		for _, nohealthIndice := range nohealthIndices {
@@ -387,12 +387,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			}
 			log.Printf("[End] to recovery unhealth index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
 		}
-    case base_tool.GetIndiceSettings:
+	case basetool.GetIndiceSettings:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -402,18 +402,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -422,22 +422,22 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		// 处理每一个索引
 		for _, indiceName := range indiceLines {
 			log.Printf("[Begin] to get settings of index:%v \n", indiceName)
-            _, mappingStr, err := compositeOp.GetIndexSettings(indiceName)
-            if err != nil {
-                log.Printf("err:%v", err)
-                return err
-            }
+			_, mappingStr, err := compositeOp.GetIndexSettings(indiceName)
+			if err != nil {
+				log.Printf("err:%v", err)
+				return err
+			}
 
-            log.Printf("settings of %v is:\n%v", indiceName, mappingStr)
+			log.Printf("settings of %v is:\n%v", indiceName, mappingStr)
 
 			log.Printf("[End] to get settings of index:%v\n", indiceName)
 		}
-	case base_tool.SetIndiceSettings:
+	case basetool.SetIndiceSettings:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -447,28 +447,28 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 获取待处理的配置信息
-		settingsFile, ok := cmdConfigs[base_tool.SettingsPath]
+		settingsFile, ok := cmdConfigs[basetool.SettingsPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.SettingsPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.SettingsPath}
+			log.Printf("Not exist:%v", basetool.SettingsPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.SettingsPath}
 		}
 		var settingsPath string
 		if strings.Index(strings.Trim(settingsFile, " "), "./") == 0 {
@@ -478,17 +478,17 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", settingsFile)
 		}
-		settingsContent, err := base_tool.ReadWholeFile(settingsPath)
+		settingsContent, err := basetool.ReadWholeFile(settingsPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 处理每一个索引
@@ -501,12 +501,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			}
 			log.Printf("[End] to set settings of index:%v of cluster:%v\n", indiceName, clusterName)
 		}
-	case base_tool.GetIndiceMapping:
+	case basetool.GetIndiceMapping:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -516,17 +516,17 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -535,22 +535,22 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		// 处理每一个索引
 		for _, indiceName := range indiceLines {
 			log.Printf("[Begin] to get mapping of index:%v \n", indiceName)
-            _, mappingStr, err := compositeOp.GetIndexMapping(indiceName)
-            if err != nil {
-                log.Printf("err:%v", err)
-                return err
-            }
+			_, mappingStr, err := compositeOp.GetIndexMapping(indiceName)
+			if err != nil {
+				log.Printf("err:%v", err)
+				return err
+			}
 
-            log.Printf("mapping of %v is:\n%v", indiceName, mappingStr)
+			log.Printf("mapping of %v is:\n%v", indiceName, mappingStr)
 
 			log.Printf("[End] to get mapping of index:%v\n", indiceName)
 		}
-	case base_tool.SetIndiceMapping:
+	case basetool.SetIndiceMapping:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -560,28 +560,28 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 获取待处理的mapping信息
-		mappingFile, ok := cmdConfigs[base_tool.MappingPath]
+		mappingFile, ok := cmdConfigs[basetool.MappingPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.MappingPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.SettingsPath}
+			log.Printf("Not exist:%v", basetool.MappingPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.SettingsPath}
 		}
 		var mappingPath string
 		if strings.Index(strings.Trim(mappingFile, " "), "./") == 0 {
@@ -591,17 +591,17 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", mappingFile)
 		}
-		mappingContent, err := base_tool.ReadWholeFile(mappingPath)
+		mappingContent, err := basetool.ReadWholeFile(mappingPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 处理每一个索引
@@ -614,7 +614,7 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			}
 			log.Printf("[End] to set mapping of index:%v of cluster:%v\n", indiceName, clusterName)
 		}
-	case base_tool.GetCurrentRecovery:
+	case basetool.GetCurrentRecovery:
 		_, respJson, err := compositeOp.GetRecoveryInfo()
 		if err != nil {
 			log.Printf("err:%v", err)
@@ -622,12 +622,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		}
 		log.Printf("%v", respJson)
 
-	case base_tool.DataSink:
+	case basetool.DataSink:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -637,18 +637,18 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
@@ -660,10 +660,10 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		}
 
 		// 获取待处理的配置信息
-		settingsFile, ok := cmdConfigs[base_tool.SettingsPath]
+		settingsFile, ok := cmdConfigs[basetool.SettingsPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.SettingsPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.SettingsPath}
+			log.Printf("Not exist:%v", basetool.SettingsPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.SettingsPath}
 		}
 		var settingsPath string
 		if strings.Index(strings.Trim(settingsFile, " "), "./") == 0 {
@@ -673,29 +673,29 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", settingsFile)
 		}
-		settingsContent, err := base_tool.ReadWholeFile(settingsPath)
+		settingsContent, err := basetool.ReadWholeFile(settingsPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 读取等待时间
-		waitSecondsString, ok := cmdConfigs[base_tool.WaitSeconds]
+		waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
 		if !ok {
-			log.Printf("Not exist:%v, then using 10 second as default", base_tool.WaitSeconds)
+			log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
 			waitSecondsString = "10"
 		}
 
 		waitSeconds, err := strconv.Atoi(waitSecondsString)
 		if err != nil {
-			return base_tool.Error{Code: base_tool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+			return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
 		}
 
 		// 处理每一个索引
@@ -715,12 +715,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			log.Printf("[End] to sink of index:%v of cluster:%v\n", indiceName, clusterName)
 		}
 
-	case base_tool.CloseIndices:
+	case basetool.CloseIndices:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -730,28 +730,28 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 处理每一个索引
@@ -764,12 +764,12 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 			}
 			log.Printf("[End] to close index:%v of cluster:%v\n", indiceName, clusterName)
 		}
-	case base_tool.OpenIndices:
+	case basetool.OpenIndices:
 		// 获取待处理的索引列表
-		indicesFile, ok := cmdConfigs[base_tool.IndicesPath]
+		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.IndicesPath)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + base_tool.IndicesPath}
+			log.Printf("Not exist:%v", basetool.IndicesPath)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndicesPath}
 		}
 		var indicesPath string
 		if strings.Index(strings.Trim(indicesFile, " "), "./") == 0 {
@@ -779,28 +779,28 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		} else {
 			log.Printf("Invalid path:%v", indicesFile)
 		}
-//		indicesContent, err := base_tool.ReadWholeFile(indicesPath)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
-//		indiceLines, err := base_tool.GetLines(indicesContent)
-//		if err != nil {
-//			log.Printf("err:%v", err)
-//			return err
-//		}
+		//		indicesContent, err := basetool.ReadWholeFile(indicesPath)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
+		//		indiceLines, err := basetool.GetLines(indicesContent)
+		//		if err != nil {
+		//			log.Printf("err:%v", err)
+		//			return err
+		//		}
 
-		indiceLines, err := base_tool.ReadAllLinesInFile(indicesPath)
+		indiceLines, err := basetool.ReadAllLinesInFile(indicesPath)
 		if err != nil {
 			log.Printf("err:%v", err)
 			return err
 		}
 
 		// 读取集群名称
-		clusterName, ok := cmdConfigs[base_tool.ClusterName]
+		clusterName, ok := cmdConfigs[basetool.ClusterName]
 		if !ok {
-			log.Printf("Not exist:%v", base_tool.ClusterName)
-			return base_tool.Error{Code: base_tool.ErrNotFound, Message: "Not found " + clusterName}
+			log.Printf("Not exist:%v", basetool.ClusterName)
+			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
 		}
 
 		// 处理每一个索引
@@ -815,7 +815,7 @@ func execCmd(cmd string, compositeOp *base_tool.CompositeOp, cmdConfigs, commonC
 		}
 	default:
 		log.Printf("Invalid cmd:%v", cmd)
-		return base_tool.Error{Code: base_tool.ErrInvalidParam, Message: "Invalid cmd" + cmd}
+		return basetool.Error{Code: basetool.ErrInvalidParam, Message: "Invalid cmd" + cmd}
 	}
 
 	return nil

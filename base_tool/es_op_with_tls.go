@@ -1,18 +1,17 @@
-package base_tool
+// base tool of es
+package basetool
 
 import (
-	//    "encoding/json"
 	"crypto/tls"
 	"crypto/x509"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
-	//    "errors"
 	"time"
-	//    "fmt"
-	"log"
 )
 
+// operation using https
 type EsOpWithTls struct {
 	IpPort         string
 	ClientCertFile string
@@ -20,6 +19,7 @@ type EsOpWithTls struct {
 	CaCertFile     string
 }
 
+// Get interface of https
 func (esOpWithTls *EsOpWithTls) Get(uri string) ([]byte, error) { // {{{
 	var cert tls.Certificate
 	var err error
@@ -74,6 +74,7 @@ func (esOpWithTls *EsOpWithTls) Get(uri string) ([]byte, error) { // {{{
 	return respByte, nil
 } // }}}
 
+// Put interface of https
 func (esOpWithTls *EsOpWithTls) Put(uri string, params string) ([]byte, error) { // {{{
 	var cert tls.Certificate
 	var err error
@@ -128,6 +129,7 @@ func (esOpWithTls *EsOpWithTls) Put(uri string, params string) ([]byte, error) {
 	return respByte, nil
 } // }}}
 
+// Post interface of https
 func (esOpWithTls *EsOpWithTls) Post(uri string, params string) ([]byte, error) { // {{{
 	var cert tls.Certificate
 	var err error

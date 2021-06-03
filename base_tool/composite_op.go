@@ -1,25 +1,25 @@
-package base_tool
+// base tool of es
+package basetool
 
 import (
-	//    "encoding/json"
 	json "github.com/json-iterator/go"
-	"strings"
-	//    "errors"
-	"reflect"
-	"runtime"
-	"strconv"
-	"time"
-	//    "fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
 )
 
+// operation using http or https
 type CompositeOp struct {
 	EsOp BaseEsOp
 }
 
+// indice information including health status
 type IndiceInfo struct {
 	Health string // green, yellow, red
 	Status string // open, close
@@ -27,6 +27,7 @@ type IndiceInfo struct {
 	Uuid   string
 }
 
+// Get health information of cluster
 func (compositeOp *CompositeOp) GetClusterHealth() (map[string]interface{}, string, error) { // {{{
 	var err error
 	respByte, err := compositeOp.EsOp.Get("_cluster/health?pretty")
@@ -47,6 +48,7 @@ func (compositeOp *CompositeOp) GetClusterHealth() (map[string]interface{}, stri
 	return respMap, string(respByte), nil
 } // }}}
 
+// Check cluster name
 func (compositeOp *CompositeOp) CheckClusterName(expectClusterName string) (bool, error) { // {{{
 	respMap, _, err := compositeOp.GetClusterHealth()
 	if err != nil {
@@ -69,7 +71,8 @@ func (compositeOp *CompositeOp) CheckClusterName(expectClusterName string) (bool
 	return true, nil
 } // }}}
 
-func (compositeOp *CompositeOp) GetIndicesInternal(uri string) ([]IndiceInfo, error) { // {{{
+// Get indices information
+func (compositeOp *CompositeOp) getIndicesInternal(uri string) ([]IndiceInfo, error) { // {{{
 	respByte, err := compositeOp.EsOp.Get(uri)
 	if err != nil {
 		log.Printf("Failed to _cat/indices?pretty, err:%v\n", err.Error())
@@ -99,12 +102,14 @@ func (compositeOp *CompositeOp) GetIndicesInternal(uri string) ([]IndiceInfo, er
 	return indicesInfo, nil
 } // }}}
 
+// Get information of indices with prefix
 func (compositeOp *CompositeOp) GetIndicesStartWith(prefix string) ([]IndiceInfo, error) { // {{{
-	return compositeOp.GetIndicesInternal("_cat/indices/" + prefix + "*?pretty")
+	return compositeOp.getIndicesInternal("_cat/indices/" + prefix + "*?pretty")
 } // }}}
 
+// Get special indice
 func (compositeOp *CompositeOp) GetIndice(indexName string) ([]IndiceInfo, error) { // {{{
-	indicesInfo, err := compositeOp.GetIndicesInternal("_cat/indices/" + indexName + "?pretty")
+	indicesInfo, err := compositeOp.getIndicesInternal("_cat/indices/" + indexName + "?pretty")
 	if err != nil {
 		//log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
 		return indicesInfo, err
@@ -112,20 +117,24 @@ func (compositeOp *CompositeOp) GetIndice(indexName string) ([]IndiceInfo, error
 
 	if len(indicesInfo) != 1 {
 		// log.Printf("Invalid number of indices %v?pretty, err:%v\n", len(indicesInfo), err.Error())
-		return indicesInfo, Error{Code: ErrInvalidNumber, Message: "invalid number of indice:" + indexName + " is " + strconv.Itoa(len(indicesInfo))}
+		return indicesInfo, Error{Code: ErrInvalidNumber, Message: "invalid number of indice:" +
+			indexName + " is " + strconv.Itoa(len(indicesInfo))}
 	}
 
 	if indicesInfo[0].Name != indexName {
-		return indicesInfo, Error{Code: ErrNotEqual, Message: "[Not equal]src indice:" + indexName + "; dest indice:" + indicesInfo[0].Name}
+		return indicesInfo, Error{Code: ErrNotEqual, Message: "[Not equal]src indice:" +
+			indexName + "; dest indice:" + indicesInfo[0].Name}
 	}
 
 	return indicesInfo, err
 } // }}}
 
+// Get all indices information
 func (compositeOp *CompositeOp) GetIndices() ([]IndiceInfo, error) { // {{{
-	return compositeOp.GetIndicesInternal("_cat/indices?pretty")
+	return compositeOp.getIndicesInternal("_cat/indices?pretty")
 } // }}}
 
+// Get indiecs of special health
 func (compositeOp *CompositeOp) GetSpecialHealthIndices(health string) ([]IndiceInfo, error) { // {{{
 	indicesInfo, err := compositeOp.GetIndices()
 	if err != nil {
@@ -144,6 +153,7 @@ func (compositeOp *CompositeOp) GetSpecialHealthIndices(health string) ([]Indice
 	return specialIndicesInfo, nil
 } // }}}
 
+// Get indices of special status
 func (compositeOp *CompositeOp) GetSpecialStatusIndices(status string) ([]IndiceInfo, error) { // {{{
 	indicesInfo, err := compositeOp.GetIndices()
 	if err != nil {
@@ -162,6 +172,7 @@ func (compositeOp *CompositeOp) GetSpecialStatusIndices(status string) ([]Indice
 	return specialIndicesInfo, nil
 } // }}}
 
+// Get cluster settings
 func (compositeOp *CompositeOp) GetClusterSettings() (map[string]interface{}, error) { // {{{
 	respByte, err := compositeOp.EsOp.Get("_cluster/settings?pretty")
 	if err != nil {
@@ -181,6 +192,7 @@ func (compositeOp *CompositeOp) GetClusterSettings() (map[string]interface{}, er
 	return respMap, nil
 } // }}}
 
+// Get special setting of cluster
 func (compositeOp *CompositeOp) GetClusterSettingsOfKey(key string) (interface{}, error) { // {{{
 	if key == "" {
 		return nil, Error{Code: ErrInvalidParam, Message: "key is nil"}
@@ -224,6 +236,7 @@ func (compositeOp *CompositeOp) GetClusterSettingsOfKey(key string) (interface{}
 	return subRespMap, nil
 } // }}}
 
+// Get indice settings
 func (compositeOp *CompositeOp) GetIndexSettings(indexName string) (map[string]interface{}, string, error) { // {{{
 	if indexName == "" {
 		return nil, "", Error{Code: ErrInvalidParam, Message: "key is nil"}
@@ -251,6 +264,7 @@ func (compositeOp *CompositeOp) GetIndexSettings(indexName string) (map[string]i
 	return respMap, string(respByte), nil
 } // }}}
 
+// Get specail setting of indice
 func (compositeOp *CompositeOp) GetIndexSettingsOfKey(indexName string, key string) (interface{}, error) { // {{{
 	if indexName == "" || key == "" {
 		return nil, Error{Code: ErrInvalidParam, Message: "index name or key is nil"}
@@ -300,6 +314,7 @@ func (compositeOp *CompositeOp) GetIndexSettingsOfKey(indexName string, key stri
 	return subRespMap, nil
 } // }}}
 
+// Get indice mapping
 func (compositeOp *CompositeOp) GetIndexMapping(indexName string) (map[string]interface{}, string, error) { // {{{
 	if indexName == "" {
 		return nil, "", Error{Code: ErrInvalidParam, Message: "key is nil"}
@@ -402,6 +417,7 @@ func (compositeOp *CompositeOp) createIndexInternal(indexName string) error { //
 	return compositeOp.setIndexInternal(indexName, "?pretty", "{}")
 } // }}}
 
+// Get recovery infomation of cluster
 func (compositeOp *CompositeOp) GetRecoveryInfo() (map[string]interface{}, string, error) { // {{{
 	respByte, err := compositeOp.EsOp.Get("_recovery?active_only=true&pretty")
 	if err != nil {
@@ -423,6 +439,8 @@ func (compositeOp *CompositeOp) GetRecoveryInfo() (map[string]interface{}, strin
 	return respMap, string(respByte), nil
 } // }}}
 
+// First set allocation on so indice could be recovery
+// Second set allocation off
 func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexName string, waitSeconds int) error { // {{{
 	if clusterName == "" || indexName == "" || waitSeconds <= 0 {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or index name or waitSeconds is nil"}
@@ -502,6 +520,7 @@ func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexNa
 	return nil
 } // }}}
 
+// Create indice and set allcation off
 func (compositeOp *CompositeOp) CreateIndice(clusterName, indexName string, waitSeconds int) error { // {{{
 	if clusterName == "" || indexName == "" || waitSeconds <= 0 {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or index name or waitSeconds is nil"}
@@ -532,6 +551,7 @@ func (compositeOp *CompositeOp) CreateIndice(clusterName, indexName string, wait
 	return nil
 } // }}}
 
+// Set indice setttings
 func (compositeOp *CompositeOp) SetIndiceSettings(clusterName, indexName, settings string) error { // {{{
 	if clusterName == "" || indexName == "" || settings == "" {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or index name or settings is nil"}
@@ -562,6 +582,7 @@ func (compositeOp *CompositeOp) SetIndiceSettings(clusterName, indexName, settin
 	return nil
 } // }}}
 
+// Set indice mapping
 func (compositeOp *CompositeOp) SetIndiceMapping(clusterName, indexName, mappings string) error { // {{{
 	if clusterName == "" || indexName == "" || mappings == "" {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or index name or mappings is nil"}
@@ -618,6 +639,7 @@ func (compositeOp *CompositeOp) postIndexInternal(indexName string, uri string, 
 	return nil
 } // }}}
 
+// Close indice
 func (compositeOp *CompositeOp) CloseIndice(clusterName, indexName string) error { // {{{
 	if clusterName == "" || indexName == "" {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or index name is nil"}
@@ -642,6 +664,7 @@ func (compositeOp *CompositeOp) CloseIndice(clusterName, indexName string) error
 	return nil
 } // }}}
 
+// Open indice
 func (compositeOp *CompositeOp) OpenIndice(clusterName, indexName string) error { // {{{
 	if clusterName == "" || indexName == "" {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or index name is nil"}
@@ -666,6 +689,7 @@ func (compositeOp *CompositeOp) OpenIndice(clusterName, indexName string) error 
 	return nil
 } // }}}
 
+// Get the difference of two string
 func Diff(prefixName string, before, after string) error { // {{{
 	logDir := "./log/" + time.Now().Format("20060102")
 	err := os.MkdirAll(logDir, os.ModePerm)
@@ -711,6 +735,7 @@ func Diff(prefixName string, before, after string) error { // {{{
 	return err
 } // }}}
 
+// Get real operation of es
 func Create(esOp BaseEsOp) *CompositeOp { // {{{
 	return &(CompositeOp{EsOp: esOp})
 } // }}}

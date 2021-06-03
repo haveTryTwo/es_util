@@ -1,17 +1,19 @@
-package base_tool
+// base tool of es
+package basetool
 
 import (
-	//    "encoding/json"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
 )
 
+// operation using http
 type EsOpNoTls struct {
 	IpPort string
 }
 
+// Get interface of http
 func (esOpNoTls *EsOpNoTls) Get(uri string) ([]byte, error) { // {{{
 	url := "http://" + esOpNoTls.IpPort + "/" + uri
 	req, err := http.NewRequest("GET", url, nil)
@@ -37,6 +39,7 @@ func (esOpNoTls *EsOpNoTls) Get(uri string) ([]byte, error) { // {{{
 	return respByte, nil
 } // }}}
 
+// Put interface of http
 func (esOpNoTls *EsOpNoTls) Put(uri string, params string) ([]byte, error) { // {{{
 	url := "http://" + esOpNoTls.IpPort + "/" + uri
 	req, err := http.NewRequest("PUT", url, strings.NewReader(params))
@@ -62,6 +65,7 @@ func (esOpNoTls *EsOpNoTls) Put(uri string, params string) ([]byte, error) { // 
 	return respByte, nil
 } // }}}
 
+// Post interface of http
 func (esOpNoTls *EsOpNoTls) Post(uri string, params string) ([]byte, error) { // {{{
 	url := "http://" + esOpNoTls.IpPort + "/" + uri
 	req, err := http.NewRequest("POST", url, strings.NewReader(params))

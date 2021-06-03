@@ -1,4 +1,5 @@
-package base_tool
+// base tool of es
+package basetool
 
 const (
 	Green  = "green"

@@ -1,4 +1,5 @@
-package base_tool
+// base tool of es
+package basetool
 
 import (
 	"bufio"
@@ -93,6 +94,7 @@ func IsDir(path string) (bool, error) { // {{{
 	return s.IsDir(), nil
 } // }}}
 
+// Get content of whole file
 func ReadWholeFile(path string) ([]byte, error) { // {{{
 	file, err := os.Open(path)
 	if err != nil {
@@ -103,6 +105,7 @@ func ReadWholeFile(path string) ([]byte, error) { // {{{
 	return content, nil
 } // }}}
 
+// Get lines of content
 func GetLines(content []byte) ([]string, error) { // {{{
 	lines := strings.Split(string(content), "\n")
 	returnLines := make([]string, 0)
