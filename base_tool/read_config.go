@@ -44,8 +44,9 @@ func ReadCfgFile(filePath string) (map[string]string, error) { // {{{
 
 		kv := strings.Fields(str)
 		if len(kv) != 2 {
-			fmt.Printf("Warning: will ignore invalid config: %s\n", str)
-			return nil, Error{Code: ErrInvalidContent, Message: "Invalid content:\"" + str + "\" which not to be: key value"}
+			fmt.Printf("Warning: invalid config: %s\n", str)
+			return nil, Error{Code: ErrInvalidContent, Message: "Invalid content:\"" + str +
+				"\" which not to be: key value"}
 		}
 
 		configs[kv[0]] = kv[1]
@@ -77,6 +78,11 @@ func ReadAllLinesInFile(filePath string) ([]string, error) { // {{{
 		// ignore comments
 		if str == "" || strings.HasPrefix(str, "#") {
 			continue
+		}
+
+		kv := strings.Fields(str)
+		if len(kv) != 1 {
+			return nil, Error{Code: ErrInvalidContent, Message: "Invalid content:\"" + str + "\" which not to be key"}
 		}
 
 		lines = append(lines, str)

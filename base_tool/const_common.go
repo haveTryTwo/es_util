@@ -10,6 +10,9 @@ const (
 	PUT    = "PUT"
 	POST   = "POST"
 	DELETE = "DELETE"
+	HEAD   = "HEAD"
+	PATCH  = "PATCH"
+	TRACE  = "TRACE"
 
 	Open  = "open"
 	Close = "close"
