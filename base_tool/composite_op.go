@@ -41,7 +41,7 @@ func (compositeOp *CompositeOp) GetClusterHealth() (map[string]interface{}, stri
 	err = json.Unmarshal(respByte, &respMap)
 	if err != nil {
 		log.Printf("_cluster/health?pretty, err:%v", err.Error())
-		return nil, "", err
+		return nil, "", Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
 	}
 	// log.Print("_cluster/health:", respMap)
 
@@ -58,8 +58,8 @@ func (compositeOp *CompositeOp) CheckClusterName(expectClusterName string) (bool
 
 	clusterName := respMap["cluster_name"]
 	if clusterName == nil {
-		log.Printf("no cluster_name in resp of _cluster/health?pretty, err:%v", err.Error())
-		return false, Error{Code: ErrNotFound, Message: "No found cluster name"}
+		log.Printf("no cluster_name in resp of _cluster/health?pretty")
+		return false, Error{Code: ErrNotFound, Message: "No found cluster_name"}
 	}
 
 	if clusterName != expectClusterName {
@@ -75,27 +75,30 @@ func (compositeOp *CompositeOp) CheckClusterName(expectClusterName string) (bool
 func (compositeOp *CompositeOp) getIndicesInternal(uri string) ([]IndiceInfo, error) { // {{{
 	respByte, err := compositeOp.EsOp.Get(uri)
 	if err != nil {
-		log.Printf("Failed to _cat/indices?pretty, err:%v\n", err.Error())
+		log.Printf("Failed to get url:%v?pretty, err:%v\n", uri, err.Error())
 		return nil, err
 	}
-	// log.Printf("_cat/indices:%v", string(respByte))
+
+	// NOTE: 在执行 _cat/indices相关命令情况下应该获取到不是 {} 这种格式，json格式意味出错
+	if json.Valid(respByte) {
+		return nil, Error{Code: ErrRespErr, Message: "Invalid respone of _cat/indices which is json: " +
+			string(respByte)}
+	}
 
 	fullInidces := strings.Split(string(respByte), "\n")
 	// log.Printf("indices:%d", len(fullInidces))
 
-	// NOTE: 在执行 _cat/indices相关命令情况下应该获取到不是 {} 这种格式，json格式意味出错
-	if json.Valid(respByte) {
-		return nil, Error{Code: ErrRespErr, Message: string(respByte)}
-	}
-
 	indicesInfo := make([]IndiceInfo, 0)
 	for _, indices := range fullInidces {
 		fields := strings.Fields(indices)
-		// log.Printf("len:%d", len(fields))
 		if len(fields) == 10 || len(fields) == 6 {
-			indicesInfo = append(indicesInfo, IndiceInfo{Health: fields[0], Status: fields[1], Name: fields[2], Uuid: fields[3]})
+			indicesInfo = append(indicesInfo, IndiceInfo{Health: fields[0], Status: fields[1], Name: fields[2],
+				Uuid: fields[3]})
 		} else if len(fields) == 3 {
-			indicesInfo = append(indicesInfo, IndiceInfo{Health: "", Status: fields[0], Name: fields[1], Uuid: fields[2]})
+			indicesInfo = append(indicesInfo, IndiceInfo{Health: "", Status: fields[0], Name: fields[1],
+				Uuid: fields[2]})
+		} else if len(fields) != 0 {
+			return nil, Error{Code: ErrRespErr, Message: "Invalid length " + strconv.Itoa(len(fields)) + ":" + indices}
 		}
 	}
 
@@ -109,6 +112,9 @@ func (compositeOp *CompositeOp) GetIndicesStartWith(prefix string) ([]IndiceInfo
 
 // Get special indice
 func (compositeOp *CompositeOp) GetIndice(indexName string) ([]IndiceInfo, error) { // {{{
+	if indexName == "" {
+		return nil, Error{Code: ErrInvalidParam, Message: "index name must not be empty"}
+	}
 	indicesInfo, err := compositeOp.getIndicesInternal("_cat/indices/" + indexName + "?pretty")
 	if err != nil {
 		//log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())

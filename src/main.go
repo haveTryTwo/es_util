@@ -14,22 +14,25 @@ import (
 var (
 	cmdCfgPath        string
 	execStatusSuccess bool
+	esToolVersion     bool
 )
 
 // GetClusterHealth http/https ip:port  http/https clusterName indexName
-func init() {
+func init() { // {{{
 	flag.StringVar(&cmdCfgPath, "cfgpath", "", "指定业务命令的配置路径")
+	flag.StringVar(&cmdCfgPath, "cfg", "", "指定业务命令的配置路径, cfgpath简写")
+	flag.BoolVar(&esToolVersion, "version", false, "获取当前es tool 版本信息")
 	flag.Parse()
-}
+} // }}}
 
-func printStats() {
+func printStats() { // {{{
 	if execStatusSuccess {
 		log.Printf("[Success]")
 	} else {
 		log.Printf("[Fail]")
 		os.Exit(-1)
 	}
-}
+} // }}}
 
 func main() { // {{{
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
@@ -37,8 +40,13 @@ func main() { // {{{
 
 	defer printStats()
 
+	if esToolVersion {
+		fmt.Printf("ES Tool version:%v\n", basetool.ESToolVersion)
+		os.Exit(0)
+	}
+
 	if "" == cmdCfgPath {
-		log.Println("cfgpath 路径不能为空")
+		log.Println("cfgpath 路径不能为空! 可以采用简化 cfg 指定路径")
 		return
 	}
 	//    log.Printf("cfgpath:%v\n", cmdCfgPath)

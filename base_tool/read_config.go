@@ -113,6 +113,10 @@ func ReadWholeFile(path string) ([]byte, error) { // {{{
 
 // Get lines of content
 func GetLines(content []byte) ([]string, error) { // {{{
+	if content == nil {
+		return nil, Error{Code: ErrInvalidParam, Message: "content is nil which should not be"}
+	}
+
 	lines := strings.Split(string(content), "\n")
 	returnLines := make([]string, 0)
 	for _, line := range lines {

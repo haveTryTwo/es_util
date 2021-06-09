@@ -6,6 +6,7 @@ import (
 	//	"fmt"
 	//	"io/ioutil"
 	//	"strings"
+	"github.com/google/go-cmp/cmp"
 	"io"
 	"log"
 	"os"
@@ -236,6 +237,128 @@ func Test_IsDir_Exception_NotExist(t *testing.T) { // {{{
 	if err == nil {
 		t.Fatalf("Invalid dir path:%v, but err is nil", dirPath)
 	}
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_ReadWholeFile_Normal_ReadAllFile(t *testing.T) { // {{{
+	srcContent := `
+## 创建新的索引，然后会打开索引的allocation直到shard创建完毕，然后会关闭索引的allocation
+Cmd   CreateIndices
+
+## 记录当前业务使用共用的文件配置，包含IPPort地址, 证书路径等
+CommonFile      ./common_file.cfg
+
+## 校验的集群名称，写操作为了避免出错，会校验集群名称
+ClusterName         HaveTryTwo_First_One
+
+## 等待时间，默认为10s
+WaitSeconds  2`
+
+	logDir := "../log/" + time.Now().Format("20060102")
+	tmpFileName := "WholeFile.cfg"
+	tmpFilePath := logDir + "/" + tmpFileName + "." + time.Now().Format("20060102030405")
+
+	err := writeTmpFile(logDir, tmpFilePath, srcContent)
+	if err != nil {
+		t.Fatalf("Failed to write tmp file:%v, err:%v", tmpFilePath, err)
+	}
+
+	readCnt, err := ReadWholeFile(tmpFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read tmp file:%v, err:%v", tmpFilePath, err)
+	}
+
+	if len(readCnt) != len(srcContent) {
+		t.Fatalf("get num %v of config from %v not equal to %v", len(readCnt), tmpFilePath, len(srcContent))
+	}
+	if string(readCnt) != srcContent {
+		t.Fatalf("value:%v not equal to src content:%v", readCnt, srcContent)
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_ReadWholeFile_Exception_NoFile(t *testing.T) { // {{{
+	tmpFilePath := "nmvasd89234k"
+	_, err := ReadWholeFile(tmpFilePath)
+	if err == nil {
+		t.Fatalf("Read tmp file:%v should failed but err is nil", tmpFilePath)
+	}
+	code, _ := DecodeErr(err)
+	if code != ErrOpenFileFailed {
+		t.Fatalf("err code:%v is not ErrOpenFileFailed:%v", code, ErrOpenFileFailed)
+	}
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_GetLines_Normal_CheckContent(t *testing.T) { // {{{
+
+	srcContents := []string{`
+red    open  just_tests_03               S6GoZ56uSoaHGjXn0nNVRg 30 0
+red    open  just_tests_07               869LZ56uSoaHGjXn0nOJIM 30 0
+green  open  just_tests_01               rVogrm3IR42MBLsPKRl_JQ  1 1      0    0    522b    261b
+yellow open  just_tests_00               1yYOkM4rRcGKZwKVE-PD1Q  5 1      0    0   1.2kb   1.2kb
+yellow open  test_index_1                cUQGSdQvT6GxSunhJEvtXQ  5 1      0    0   1.2kb   1.2kb
+green  open  just_tests_04               G7S28w0dS7qJ8yLTYsI7QA  1 1      3    0  20.8kb  10.4kb
+       close just_tests_11               VInnpfgbQU-oYVMItaliaw
+       close just_tests_12               AInkpffbQU-oYIOJLUI89M`,
+		`
+just_tests_00
+
+just_tests_01
+just_tests_10
+
+just_tests_11
+        `,
+		``,
+	}
+
+	checkContents := [][]string{
+		{
+			"red    open  just_tests_03               S6GoZ56uSoaHGjXn0nNVRg 30 0",
+			"red    open  just_tests_07               869LZ56uSoaHGjXn0nOJIM 30 0",
+			"green  open  just_tests_01               rVogrm3IR42MBLsPKRl_JQ  1 1      0    0    522b    261b",
+			"yellow open  just_tests_00               1yYOkM4rRcGKZwKVE-PD1Q  5 1      0    0   1.2kb   1.2kb",
+			"yellow open  test_index_1                cUQGSdQvT6GxSunhJEvtXQ  5 1      0    0   1.2kb   1.2kb",
+			"green  open  just_tests_04               G7S28w0dS7qJ8yLTYsI7QA  1 1      3    0  20.8kb  10.4kb",
+			"close just_tests_11               VInnpfgbQU-oYVMItaliaw",
+			"close just_tests_12               AInkpffbQU-oYIOJLUI89M",
+		}, {
+			"just_tests_00",
+			"just_tests_01",
+			"just_tests_10",
+			"just_tests_11",
+		}, {},
+	}
+
+	for i, srcContent := range srcContents {
+		retLines, err := GetLines([]byte(srcContent))
+		if err != nil {
+			t.Fatalf("Failed to GetLines of %v, err:%v", srcContent, err)
+		}
+
+		if len(retLines) != len(checkContents[i]) {
+			t.Fatalf("len:%v of ret lines not equal to len:%v", len(retLines), len(checkContents[i]))
+		}
+
+		tmpDiff := cmp.Diff(retLines, checkContents[i])
+		if tmpDiff != "" {
+			t.Fatalf("Diff of retLines:%v not equal to %v, which is %v", retLines, checkContents[i], tmpDiff)
+		}
+	}
+} // }}}
+
+func Test_GetLines_Exception_NilContent(t *testing.T) { // {{{
+	_, err := GetLines(nil)
+	if err == nil {
+		t.Fatalf("GetLines should be failed, but err is nil")
+	}
+
+	code, _ := DecodeErr(err)
+	if code != ErrInvalidParam {
+		t.Fatalf("err code:%v is not ErrInvalidParam:%v", code, ErrInvalidParam)
+	}
+
 	t.Logf("Exception Test! err:%v", err)
 } // }}}
 
