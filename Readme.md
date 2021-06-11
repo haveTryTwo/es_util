@@ -22,6 +22,13 @@
 
 ```
 
+### 1.1.1 GetClusterSettings
+说明：获取集群的`settings`信息
+```
+./main -cfgpath ./conf/HaveTryTwo_First_One/GetClusterSettings.cfg
+
+```
+
 ### 1.2 CheckClusterName
 说明：检查集群名称是否为期望的值
 ```
