@@ -180,6 +180,13 @@ func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonCo
 		} else {
 			log.Printf("[Not Equal] cluster name not equal to %v", clusterName)
 		}
+	case basetool.GetClusterSettings:
+		_, respJson, err := compositeOp.GetClusterSettings()
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("%v", respJson)
 	case basetool.GetIndiceStatus:
 		// 读取当前请求命令
 		indexName, ok := cmdConfigs[basetool.IndexName]

@@ -34,6 +34,7 @@ const (
 	MappingPath    = "MappingPath"
 
 	GetClusterHealth              = "GetClusterHealth"
+	GetClusterSettings            = "GetClusterSettings"
 	CheckClusterName              = "CheckClusterName"
 	GetIndiceStatus               = "GetIndiceStatus"
 	SetIndiceAllocationOnAndOff   = "SetIndiceAllocationOnAndOff"

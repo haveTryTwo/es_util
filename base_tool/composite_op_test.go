@@ -18,6 +18,140 @@ import (
 	"testing"
 )
 
+func Test_GetClusterInternal_Normal_Get(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcClusterReq := "_cluster/health?pretty"
+	srcClusterResps := []string{`{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "timed_out" : false,
+  "number_of_nodes" : 6,
+  "number_of_data_nodes" : 3,
+  "active_primary_shards" : 290,
+  "active_shards" : 556,
+  "relocating_shards" : 0,
+  "initializing_shards" : 0,
+  "unassigned_shards" : 0,
+  "delayed_unassigned_shards" : 0,
+  "number_of_pending_tasks" : 0,
+  "number_of_in_flight_fetch" : 0,
+  "task_max_waiting_in_queue_millis" : 0,
+  "active_shards_percent_as_number" : 100.0
+}`,
+		`{"cluster_name" : "HaveTryTwo_First_Two"}`,
+		"{}",
+	}
+
+	for _, srcClusterResp := range srcClusterResps {
+		var srcClusterRespMap map[string]interface{}
+		err := json.Unmarshal([]byte(srcClusterResp), &srcClusterRespMap)
+		if err != nil {
+			t.Fatalf("Failed to json unmarshall:%v err:%v", srcClusterResp, err)
+		}
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
+
+		compositeOp := Create(mockEsOp)
+		respMap, respByte, err := compositeOp.getClusterInternal(srcClusterReq)
+		if err != nil {
+			t.Fatalf("Failed to check %v, err:%v", srcClusterReq, err)
+		}
+
+		if respByte != srcClusterResp {
+			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcClusterResp)
+		}
+
+		if len(respMap) != len(srcClusterRespMap) {
+			t.Fatalf("Num:%v of RespMap not equal to mock resp:%v", len(respMap), len(srcClusterRespMap))
+		}
+
+		for key, value := range respMap {
+			srcValue, ok := srcClusterRespMap[key]
+			if !ok {
+				t.Fatalf("Key:%v not in srcClusterRespMap:%v", key, srcClusterRespMap)
+			}
+
+			cmpDiff := cmp.Diff(value, srcValue)
+			if cmpDiff != "" {
+				t.Fatalf("Value:%v not equal to src:%v, diff:%v", value, srcValue, cmpDiff)
+			}
+		}
+	}
+} // }}}
+
+func Test_GetClusterInternal_Exception_InvalidResponse(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcClusterReq := "_cluster/health?pretty"
+	srcClusterResp := "xxaabb{ad:}ddd"
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	_, _, err := compositeOp.getClusterInternal(srcClusterReq)
+	if err == nil {
+		t.Fatalf("Mock resp failed but err is nil of GetClusterHealth")
+	}
+	code, _ := DecodeErr(err)
+	if code != ErrJsonUnmarshalFailed {
+		t.Fatalf("err code:%v is not ErrJsonUnmarshalFailed:%v", code, ErrJsonUnmarshalFailed)
+	}
+	t.Logf("Exception Test! err:%v", err)
+	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
+} // }}}
+
+func Test_GetClusterInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcClusterReq := "_cluster/health?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, _, err := compositeOp.getClusterInternal(srcClusterReq)
+		if err == nil {
+			t.Fatalf("Expect getClusterInternal %v excute failed, but err is nil", srcClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetClusterInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
+	compositeOp := Create(nil)
+	_, _, err := compositeOp.getClusterInternal("")
+	if err == nil {
+		t.Fatalf("getClusterInternal should be failed, but err is nil")
+	}
+
+	code, _ := DecodeErr(err)
+	if code != ErrInvalidParam {
+		t.Fatalf("err code:%v is not ErrInvalidParam:%v", code, ErrInvalidParam)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
 func Test_GetClusterHealth_Normal_Get(t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -82,55 +216,6 @@ func Test_GetClusterHealth_Normal_Get(t *testing.T) { // {{{
 	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
 } // }}}
 
-func Test_GetClusterHealth_Normal_Empty_Response(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcClusterReq := "_cluster/health?pretty"
-	srcClusterResp := "{}"
-
-	mockEsOp := NewMockBaseEsOp(ctrl)
-	mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
-
-	compositeOp := Create(mockEsOp)
-	respMap, respByte, err := compositeOp.GetClusterHealth()
-	if err != nil {
-		t.Fatalf("Failed to check %v, err:%v", srcClusterReq, err)
-	}
-
-	if respByte != srcClusterResp {
-		t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcClusterResp)
-	}
-
-	if len(respMap) != 0 {
-		t.Fatalf("Num:%v of RespMap not equal to mock resp:0", len(respMap))
-	}
-	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
-} // }}}
-
-func Test_GetClusterHealth_Exception_GetErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcClusterReq := "_cluster/health?pretty"
-
-	var err error = Error{Code: ErrInvalidParam, Message: "Invalid op: XXPMG"}
-	mockEsOp := NewMockBaseEsOp(ctrl)
-	mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, err)
-
-	compositeOp := Create(mockEsOp)
-	_, _, err = compositeOp.GetClusterHealth()
-	if err == nil {
-		t.Fatalf("Mock resp failed but err is nil of GetClusterHealth")
-	}
-	code, _ := DecodeErr(err)
-	if code != ErrInvalidParam {
-		t.Fatalf("err code:%v is not ErrInvalidParam:%v", code, ErrInvalidParam)
-	}
-	t.Logf("Exception Test! err:%v", err)
-	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
-} // }}}
-
 func Test_GetClusterHealth_Exception_InvalidResponse(t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -152,6 +237,39 @@ func Test_GetClusterHealth_Exception_InvalidResponse(t *testing.T) { // {{{
 	}
 	t.Logf("Exception Test! err:%v", err)
 	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
+} // }}}
+
+func Test_GetClusterHealth_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcClusterReq := "_cluster/health?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, _, err := compositeOp.GetClusterHealth()
+		if err == nil {
+			t.Fatalf("Expect GetClusterHealth %v excute failed, but err is nil", srcClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
 } // }}}
 
 func Test_CheckClusterName_Normal_Equal(t *testing.T) { // {{{
@@ -266,27 +384,37 @@ func Test_CheckClusterName_Normal_NotEqual(t *testing.T) { // {{{
 	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
 } // }}}
 
-func Test_CheckClusterName_Exception_GetErr(t *testing.T) { // {{{
+func Test_CheckClusterName_Exception_OtherErr(t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	srcClusterReq := "_cluster/health?pretty"
-
-	var err error = Error{Code: ErrInvalidParam, Message: "Invalid op: XXPMG"}
-	mockEsOp := NewMockBaseEsOp(ctrl)
-	mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, err)
-
-	compositeOp := Create(mockEsOp)
-	_, err = compositeOp.CheckClusterName("aabb")
-	if err == nil {
-		t.Fatalf("Mock resp failed but err is nil of CheckClusterName")
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
 	}
-	code, _ := DecodeErr(err)
-	if code != ErrInvalidParam {
-		t.Fatalf("err code:%v is not ErrInvalidParam:%v", code, ErrInvalidParam)
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.CheckClusterName("aabb")
+		if err == nil {
+			t.Fatalf("Expect CheckClusterName %v excute failed, but err is nil", srcClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
 	}
-	t.Logf("Exception Test! err:%v", err)
-	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
 } // }}}
 
 func Test_CheckClusterName_Exception_InvalidResponse(t *testing.T) { // {{{
@@ -485,6 +613,43 @@ func Test_GetIndicesInternal_Exception_JsonResp(t *testing.T) { // {{{
 	}
 } // }}}
 
+func Test_GetIndicesInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	prefixs := []string{"aa/bb", "cc", "ee", "ff", "gg"}
+	srcIndicesReqs := make([]string, 0)
+	for _, prefix := range prefixs {
+		srcIndicesReqs = append(srcIndicesReqs, "_cat/indices/"+prefix+"*?pretty")
+	}
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, srcIndicesReq := range srcIndicesReqs {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReqs[i])).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.getIndicesInternal(srcIndicesReq)
+		if err == nil {
+			t.Fatalf("Expect getIndicesInternal %v excute failed, but err is nil", srcIndicesReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
 func Test_GetIndicesStartWith_Normal_Get(t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -642,6 +807,43 @@ func Test_GetIndicesStartWith_Exception_JsonResp(t *testing.T) { // {{{
 		code, _ := DecodeErr(err)
 		if code != ErrRespErr {
 			t.Fatalf("err code:%v is not ErrRespErr:%v", code, ErrRespErr)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetIndicesStartWith_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	prefixs := []string{"aa/bb", "cc", "ee", "ff", "gg"}
+	srcIndicesReqs := make([]string, 0)
+	for _, prefix := range prefixs {
+		srcIndicesReqs = append(srcIndicesReqs, "_cat/indices/"+prefix+"*?pretty")
+	}
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, prefix := range prefixs {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReqs[i])).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.GetIndicesStartWith(prefix)
+		if err == nil {
+			t.Fatalf("Expect GetIndicesStartWith %v excute failed, but err is nil", prefix)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
 		}
 
 		t.Logf("Exception Test! err:%v", err)
@@ -889,6 +1091,43 @@ red    open  just_tests_06               S6GoZ56uSoaHGjXn0nNVRg 1 0
 	}
 } // }}}
 
+func Test_GetIndice_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	indiceNames := []string{"aa/bb", "cc", "ee", "ff", "gg"}
+	srcIndicesReqs := make([]string, 0)
+	for _, indiceName := range indiceNames {
+		srcIndicesReqs = append(srcIndicesReqs, "_cat/indices/"+indiceName+"?pretty")
+	}
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, indiceName := range indiceNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReqs[i])).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.GetIndice(indiceName)
+		if err == nil {
+			t.Fatalf("Expect GetIndice %v excute failed, but err is nil", indiceName)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
 func Test_GetIndices_Normal_Get(t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1033,6 +1272,39 @@ func Test_GetIndices_Exception_JsonResp(t *testing.T) { // {{{
 		code, _ := DecodeErr(err)
 		if code != ErrRespErr {
 			t.Fatalf("err code:%v is not ErrRespErr:%v", code, ErrRespErr)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetIndices_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndicesReq := "_cat/indices?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.GetIndices()
+		if err == nil {
+			t.Fatalf("Expect GetIndices excute failed, but err is nil")
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
 		}
 
 		t.Logf("Exception Test! err:%v", err)
@@ -1188,6 +1460,39 @@ func Test_GetSpecialHealthIndices_Exception_JsonResp(t *testing.T) { // {{{
 	}
 } // }}}
 
+func Test_GetSpecialHealthIndices_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndicesReq := "_cat/indices?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.GetSpecialHealthIndices(Yellow)
+		if err == nil {
+			t.Fatalf("Expect GetSpecailHealthIndices excute failed, but err is nil")
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
 func Test_GetSpecialStatusIndices_Normal_Get(t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1330,6 +1635,169 @@ func Test_GetSpecialStatusIndices_Exception_JsonResp(t *testing.T) { // {{{
 		code, _ := DecodeErr(err)
 		if code != ErrRespErr {
 			t.Fatalf("err code:%v is not ErrRespErr:%v", code, ErrRespErr)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetSpecialStatusIndices_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndicesReq := "_cat/indices?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.GetSpecialStatusIndices(Open)
+		if err == nil {
+			t.Fatalf("Expect GetSpecailStatusIndices excute failed, but err is nil")
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetClusterSettings_Normal_Get(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcClusterReq := "_cluster/settings?pretty"
+	srcClusterResps := []string{`{
+  "persistent" : {
+    "cluster" : {
+      "routing" : {
+        "allocation" : {
+          "enable" : "none",
+          "node_initial_primaries_recoveries" : "4"
+        }
+      }
+    },
+    "search" : {
+      "remote" : {
+        "HaveTryTwo_First_One" : {
+          "skip_unavailable" : "true",
+          "seeds" : [
+            "localhost:9300"
+          ]
+        },
+        "HaveTryTwo_First_two" : {
+          "skip_unavailable" : "true",
+          "seeds" : [
+            "localhost:9910"
+          ]
+        }
+      }
+    }
+  },
+  "transient" : { }
+}`,
+		`{"persistent" : {}, "transient" : {} }`,
+		"{}",
+	}
+
+	for _, srcClusterResp := range srcClusterResps {
+		var srcClusterRespMap map[string]interface{}
+		err := json.Unmarshal([]byte(srcClusterResp), &srcClusterRespMap)
+		if err != nil {
+			t.Fatalf("Failed to json unmarshall:%v err:%v", srcClusterResp, err)
+		}
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
+
+		compositeOp := Create(mockEsOp)
+		respMap, respByte, err := compositeOp.GetClusterSettings()
+		if err != nil {
+			t.Fatalf("Failed to check %v, err:%v", srcClusterReq, err)
+		}
+
+		if respByte != srcClusterResp {
+			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcClusterResp)
+		}
+
+		if len(respMap) != len(srcClusterRespMap) {
+			t.Fatalf("Num:%v of RespMap not equal to mock resp:%v", len(respMap), len(srcClusterRespMap))
+		}
+
+		for key, value := range respMap {
+			srcValue, ok := srcClusterRespMap[key]
+			if !ok {
+				t.Fatalf("Key:%v not in srcClusterRespMap:%v", key, srcClusterRespMap)
+			}
+
+			cmpDiff := cmp.Diff(value, srcValue)
+			if cmpDiff != "" {
+				t.Fatalf("Value:%v not equal to src:%v, diff:%v", value, srcValue, cmpDiff)
+			}
+		}
+	}
+} // }}}
+
+func Test_GetClusterSettings_Exception_InvalidResponse(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcClusterReq := "_cluster/settings?pretty"
+	srcClusterResp := "xxaabb{ad:}ddd"
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	_, _, err := compositeOp.GetClusterSettings()
+	if err == nil {
+		t.Fatalf("Mock resp failed but err is nil of GetClusterSettings")
+	}
+	code, _ := DecodeErr(err)
+	if code != ErrJsonUnmarshalFailed {
+		t.Fatalf("err code:%v is not ErrJsonUnmarshalFailed:%v", code, ErrJsonUnmarshalFailed)
+	}
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_GetClusterSettings_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcClusterReq := "_cluster/settings?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, _, err := compositeOp.GetClusterSettings()
+		if err == nil {
+			t.Fatalf("Expect GetClusterSettings %v excute failed, but err is nil", srcClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
 		}
 
 		t.Logf("Exception Test! err:%v", err)

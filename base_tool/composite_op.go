@@ -27,25 +27,30 @@ type IndiceInfo struct {
 	Uuid   string
 }
 
-// Get health information of cluster
-func (compositeOp *CompositeOp) GetClusterHealth() (map[string]interface{}, string, error) { // {{{
-	var err error
-	respByte, err := compositeOp.EsOp.Get("_cluster/health?pretty")
+func (compositeOp *CompositeOp) getClusterInternal(uri string) (map[string]interface{}, string, error) { // {{{
+	if uri == "" {
+		return nil, "", Error{Code: ErrInvalidParam, Message: "uri is nil"}
+	}
+
+	respByte, err := compositeOp.EsOp.Get(uri)
 	if err != nil {
-		log.Printf("Failed to get _cluster/health?pretty, err:%v\n", err.Error())
+		log.Printf("Failed to get %v, err:%v\n", uri, err.Error())
 		return nil, "", err
 	}
-	//    log.Printf("_cluster/health:%v", string(respByte))
 
 	var respMap map[string]interface{}
 	err = json.Unmarshal(respByte, &respMap)
 	if err != nil {
-		log.Printf("_cluster/health?pretty, err:%v", err.Error())
+		log.Printf("Failed to unmarshal %v, err:%v", uri, err.Error())
 		return nil, "", Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
 	}
-	// log.Print("_cluster/health:", respMap)
 
 	return respMap, string(respByte), nil
+} // }}}
+
+// Get health information of cluster
+func (compositeOp *CompositeOp) GetClusterHealth() (map[string]interface{}, string, error) { // {{{
+	return compositeOp.getClusterInternal("_cluster/health?pretty")
 } // }}}
 
 // Check cluster name
@@ -179,23 +184,8 @@ func (compositeOp *CompositeOp) GetSpecialStatusIndices(status string) ([]Indice
 } // }}}
 
 // Get cluster settings
-func (compositeOp *CompositeOp) GetClusterSettings() (map[string]interface{}, error) { // {{{
-	respByte, err := compositeOp.EsOp.Get("_cluster/settings?pretty")
-	if err != nil {
-		log.Printf("Failed to get _cluster/settings?pretty, err:%v\n", err.Error())
-		return nil, err
-	}
-	log.Printf("_cluster/settings:%v", string(respByte))
-
-	var respMap map[string]interface{}
-	err = json.Unmarshal(respByte, &respMap)
-	if err != nil {
-		log.Printf("_cluster/health?pretty, err:%v", err.Error())
-		return nil, Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
-	}
-	log.Print("_cluster/settings:", respMap)
-
-	return respMap, nil
+func (compositeOp *CompositeOp) GetClusterSettings() (map[string]interface{}, string, error) { // {{{
+	return compositeOp.getClusterInternal("_cluster/settings?pretty")
 } // }}}
 
 func getValueOfKeyPath(key string, keyTerms []string, respMap map[string]interface{}) (interface{}, error) { // {{{
@@ -234,7 +224,7 @@ func (compositeOp *CompositeOp) GetClusterSettingsOfKey(key string) (interface{}
 		return nil, Error{Code: ErrInvalidParam, Message: "key is nil"}
 	}
 
-	respMap, err := compositeOp.GetClusterSettings()
+	respMap, _, err := compositeOp.GetClusterSettings()
 	if err != nil {
 		log.Printf("Failed to get _cluster/settings?pretty, err:%v\n", err.Error())
 		return nil, err
@@ -250,7 +240,6 @@ func (compositeOp *CompositeOp) getInfoInternal(url string) (map[string]interfac
 		log.Printf("Failed to get %v?pretty, err:%v\n", url, err.Error())
 		return nil, "", err
 	}
-	// log.Printf("%v/_settings:%v", indexName, string(respByte))
 
 	var respMap map[string]interface{}
 	err = json.Unmarshal(respByte, &respMap)
@@ -258,7 +247,6 @@ func (compositeOp *CompositeOp) getInfoInternal(url string) (map[string]interfac
 		log.Printf("Failed to parse json?pretty, err:%v", err.Error())
 		return nil, string(respByte), Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
 	}
-	// log.Printf("%v/_settings: %v", indexName, respMap)
 
 	if respMap["error"] != nil || respMap["status"] != nil {
 		return respMap, string(respByte), Error{Code: ErrRespErr, Message: "Resp error:" + string(respByte)}
