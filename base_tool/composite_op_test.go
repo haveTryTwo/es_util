@@ -4,18 +4,18 @@ package basetool
 import (
 	//	"io"
 	//	"log"
-	//	"os"
 	//	"os/exec"
 	//	"reflect"
 	//	"runtime"
 	//	"strconv"
-	//	"time"
 	gomock "github.com/golang/mock/gomock"
 	"github.com/google/go-cmp/cmp"
 	json "github.com/json-iterator/go"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func Test_GetInfoInternal_Normal_Get(t *testing.T) { // {{{
@@ -3147,6 +3147,4582 @@ func Test_GetIndexMapping_Exception_EmptyIndexName(t *testing.T) { // {{{
 	_, _, err := compositeOp.GetIndexMapping("")
 	if err == nil {
 		t.Fatalf("GetIndexMapping expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndexInternal_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "just_tests_19"}
+	uris := []string{"/_settings?pretty", "/_settings?pretty", "/_mapping/_doc?pretty", "/_mapping/_doc?pretty"}
+	srcIndexReqs := make([]string, 0)
+	for i, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uris[i])
+	}
+
+	params := []string{`{
+        "index.routing.allocation.enable": "none"
+    }`, `{
+        "index.number_of_replicas":"5"
+    }`, `{
+        "properties": {
+            "content": {
+                "type": "text",
+                "analyzer": "ik_max_word",
+                "search_analyzer": "ik_max_word"
+            },
+            "name" : {
+                "type" : "keyword"
+            }
+        }
+    }`, `{
+        "properties": {
+            "age" : {
+                "type" : "long"
+            }
+        }
+    }`,
+	}
+
+	srcIndexResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReqs[i]), gomock.Eq(params[i])).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		respByte, err := compositeOp.setIndexInternal(srcIndexName, uris[i], params[i])
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexReqs[i], err)
+		}
+
+		if respByte != srcIndexResps[i] {
+			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcIndexResps[i])
+		}
+	}
+} // }}}
+
+func Test_SetIndexInternal_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	srcIndexName := "just_tests_18"
+	uri := "/_settings?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{\"index.routing.allocation.enable\": \"none\"}"
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.setIndexInternal(srcIndexName, uri, param)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndexInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexName := "just_tests_18"
+	uri := "/_settings?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{\"index.routing.allocation.enable\": \"none\"}"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.setIndexInternal(srcIndexName, uri, param)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndexInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "index name or uri or param is nil"}
+	compositeOp := Create(nil)
+	_, err := compositeOp.setIndexInternal("", "xx", "yy")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_Diff_Normal_Check(t *testing.T) { // {{{
+	befores := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          }
+        }
+      }
+    }
+  }
+}`, `{
+}`, `{
+  "tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : false,
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          }
+      }
+    }
+  }
+}`, `{
+}`,
+	}
+
+	afters := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "50",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          },
+          "tweet" : {
+            "type" : "keyword"
+          }
+        }
+      }
+    }
+  }
+}`, `{
+    "just_tests_10.settings.index.routing.allocation":"all"
+}`, `{
+}`, `{
+}`,
+	}
+
+	prefixNames := []string{"tests_1", "tests_2", "tests_3", "tests_4", "tests_5"}
+
+	for i, prefixName := range prefixNames {
+		logDir := "./log/" + time.Now().Format("20060102")
+		defer os.RemoveAll(logDir)
+		prefixPath := logDir + "/" + prefixName + "." + time.Now().Format("20060102030405")
+		beforePath := prefixPath + ".before"
+		afterPath := prefixPath + ".after"
+
+		err := Diff(prefixName, befores[i], afters[i])
+		if err != nil {
+			t.Fatalf("Diff %v failed , err:%v", prefixName, err)
+		}
+
+		readCnt, err := ReadWholeFile(beforePath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", beforePath, err)
+		}
+
+		if len(readCnt) != len(befores[i]) {
+			t.Fatalf("get num %v of config from %v not equal to %v", len(readCnt), beforePath, len(befores[i]))
+		}
+		if string(readCnt) != befores[i] {
+			t.Fatalf("value:%v not equal to src content:%v", readCnt, befores[i])
+		}
+
+		readCnt, err = ReadWholeFile(afterPath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", afterPath, err)
+		}
+
+		if len(readCnt) != len(afters[i]) {
+			t.Fatalf("get num %v of config from %v not equal to %v", len(readCnt), afterPath, len(afters[i]))
+		}
+		if string(readCnt) != afters[i] {
+			t.Fatalf("value:%v not equal to src content:%v", readCnt, afters[i])
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndexSettingsInternal_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcBeforeGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_15",
+        "creation_date" : "1609029784313",
+        "number_of_replicas" : "2",
+        "uuid" : "MX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_15",
+        "creation_date" : "1609029784313",
+        "number_of_replicas" : "5",
+        "uuid" : "MX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_18" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_18",
+        "creation_date" : "1679029784313",
+        "number_of_replicas" : "50",
+        "uuid" : "JX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`,
+	}
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18"}
+	uris := []string{"/_settings?pretty", "/_settings?pretty", "/_settings?pretty"}
+	srcIndexReqs := make([]string, 0)
+	for i, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uris[i])
+	}
+
+	params := []string{`{
+        "index.routing.allocation.enable": "none"
+    }`, `{
+        "index.number_of_replicas":"5"
+    }`, `{
+        "index.number_of_replicas":"50"
+    }`, `{
+    }`,
+	}
+
+	srcIndexPutResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReqs[i]), gomock.Eq(params[i])).Return([]byte(srcIndexPutResps[i]), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.setIndexSettingsInternal(srcIndexName, params[i])
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexReqs[i], err)
+		}
+
+		// Check file
+		logDir := "./log/" + time.Now().Format("20060102")
+		defer os.RemoveAll(logDir)
+		prefixPath := logDir + "/" + srcIndexName + ".settings." + time.Now().Format("20060102030405")
+		beforePath := prefixPath + ".before"
+		afterPath := prefixPath + ".after"
+
+		readCnt, err := ReadWholeFile(beforePath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", beforePath, err)
+		}
+
+		if len(readCnt) != len(srcBeforeGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), beforePath, len(srcBeforeGetResps[i]))
+		}
+		if string(readCnt) != srcBeforeGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcBeforeGetResps[i])
+		}
+
+		readCnt, err = ReadWholeFile(afterPath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", afterPath, err)
+		}
+
+		if len(readCnt) != len(srcAfterGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), afterPath, len(srcAfterGetResps[i]))
+		}
+		if string(readCnt) != srcAfterGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcAfterGetResps[i])
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndexSettingsInternal_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+
+	srcBeforeGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : { "settings.index.number_of_shards" : "88" }
+}`, `{
+  "just_tests_18" : { "settings.index.number_of_shards" : "88" }
+}`, `{
+  "tests_21" : { "settings.index.number_of_shards" : "88" }
+}`, `{
+  "tests_22" : { "settings.index.number_of_shards" : "88" }
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029285313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : { "settings.index.number_of_shards" : "98" }
+}`, `{
+  "just_tests_18" : { "settings.index.number_of_shards" : "128" }
+}`, `{
+  "tests_21" : { "settings.index.number_of_shards" : "228" }
+}`, `{
+  "tests_22" : { "settings.index.number_of_shards" : "328" }
+}`,
+	}
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "tests_21", "tests_22"}
+	uri := "/_settings?pretty"
+	srcIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uri)
+	}
+
+	param := "{\"index.routing.allocation.enable\": \"none\"}"
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReqs[i]), gomock.Eq(param)).Return([]byte(srcIndexResps[i]), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.setIndexSettingsInternal(srcIndexNames[i], param)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndexSettingsInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcBeforeGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : { "settings.index.number_of_shards" : "88" }
+}`, `{
+  "just_tests_18" : { "settings.index.number_of_shards" : "88" }
+}`, `{
+  "tests_21" : { "settings.index.number_of_shards" : "88" }
+}`, `{
+  "tests_22" : { "settings.index.number_of_shards" : "88" }
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029285313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : { "settings.index.number_of_shards" : "98" }
+}`, `{
+  "just_tests_18" : { "settings.index.number_of_shards" : "128" }
+}`, `{
+  "tests_21" : { "settings.index.number_of_shards" : "228" }
+}`, `{
+  "tests_22" : { "settings.index.number_of_shards" : "328" }
+}`,
+	}
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "tests_21", "tests_22"}
+	uri := "/_settings?pretty"
+	srcIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uri)
+	}
+
+	param := "{\"index.routing.allocation.enable\": \"none\"}"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReqs[i]), gomock.Eq(param)).Return(nil, errors[i])
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.setIndexSettingsInternal(srcIndexNames[i], param)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReqs[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndexSettingsInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "index name or param is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.setIndexSettingsInternal("", "yy")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndexMappingInternal_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcBeforeGetResps := []string{` {
+  "tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_15" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false
+          }
+        }
+      }
+    }
+  }
+}`, `{
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          },
+          "age" : {
+            "type" : "integer"
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_15" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false
+          },
+          "hehe" : {
+            "type" : "keyword",
+            "index" : false,
+            "doc_values" : false
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_18" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          }
+        }
+      }
+    }
+  }
+}`,
+	}
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18"}
+	getUris := []string{"/_mapping?pretty", "/_mapping?pretty", "/_mapping?pretty"}
+	putUris := []string{"/_mapping/_doc?pretty", "/_mapping/_doc?pretty", "/_mapping/_doc?pretty"}
+	srcGetIndexReqs := make([]string, 0)
+	srcPutIndexReqs := make([]string, 0)
+	for i, srcIndexName := range srcIndexNames {
+		srcGetIndexReqs = append(srcGetIndexReqs, srcIndexName+getUris[i])
+		srcPutIndexReqs = append(srcPutIndexReqs, srcIndexName+putUris[i])
+	}
+
+	params := []string{`{
+        "properties": {
+          "age" : {
+            "type" : "integer"
+          }
+        }
+    }`, `{
+        "properties": {
+          "hehe" : {
+            "type" : "keyword",
+            "index" : false,
+            "doc_values" : false,
+          }
+      }
+    }`, `{
+        "properties": {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          }
+      }
+    }`,
+	}
+
+	srcIndexPutResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcPutIndexReqs[i]),
+			gomock.Eq(params[i])).Return([]byte(srcIndexPutResps[i]), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.setIndexMappingsInternal(srcIndexName, params[i])
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcPutIndexReqs[i], err)
+		}
+
+		// Check file
+		logDir := "./log/" + time.Now().Format("20060102")
+		defer os.RemoveAll(logDir)
+		prefixPath := logDir + "/" + srcIndexName + ".mapping." + time.Now().Format("20060102030405")
+		beforePath := prefixPath + ".before"
+		afterPath := prefixPath + ".after"
+
+		readCnt, err := ReadWholeFile(beforePath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", beforePath, err)
+		}
+
+		if len(readCnt) != len(srcBeforeGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), beforePath, len(srcBeforeGetResps[i]))
+		}
+		if string(readCnt) != srcBeforeGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcBeforeGetResps[i])
+		}
+
+		readCnt, err = ReadWholeFile(afterPath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", afterPath, err)
+		}
+
+		if len(readCnt) != len(srcAfterGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), afterPath, len(srcAfterGetResps[i]))
+		}
+		if string(readCnt) != srcAfterGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcAfterGetResps[i])
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndexMappingInternal_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+
+	srcBeforeGetResps := []string{` {
+  "just_tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "just_tests_18" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "tests_21" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "tests_22" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "just_tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          },
+          "age" : {"type": "integer"}
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "just_tests_18" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"text"}
+      }
+    }
+  }
+}`, `{
+  "tests_21" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"integer"}
+      }
+    }
+  }
+}`, `{
+  "tests_22" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"long"}
+      }
+    }
+  }
+}`,
+	}
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "tests_21", "tests_22"}
+	getUri := "/_mapping?pretty"
+	putUri := "/_mapping/_doc?pretty"
+	srcGetIndexReqs := make([]string, 0)
+	srcPutIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcGetIndexReqs = append(srcGetIndexReqs, srcIndexName+getUri)
+		srcPutIndexReqs = append(srcPutIndexReqs, srcIndexName+putUri)
+	}
+
+	param := `{
+        "properties": {
+          "age" : {
+            "type" : "integer"
+          }
+        }}`
+
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcPutIndexReqs[i]), gomock.Eq(param)).Return([]byte(srcIndexResps[i]), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.setIndexMappingsInternal(srcIndexNames[i], param)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndexMappingsInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcBeforeGetResps := []string{` {
+  "just_tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "just_tests_18" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "tests_21" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "tests_22" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"}
+      }
+    }
+  }
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "just_tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          },
+          "age" : {"type": "integer"}
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"keyword"}
+      }
+    }
+  }
+}`, `{
+  "just_tests_18" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"text"}
+      }
+    }
+  }
+}`, `{
+  "tests_21" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"integer"}
+      }
+    }
+  }
+}`, `{
+  "tests_22" : {
+    "mappings" : {
+      "_doc" : {
+          "name": {"type":"keyword"},
+          "info": {"type":"long"}
+      }
+    }
+  }
+}`,
+	}
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "tests_21", "tests_22"}
+	getUri := "/_mapping?pretty"
+	putUri := "/_mapping/_doc?pretty"
+	srcGetIndexReqs := make([]string, 0)
+	srcPutIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcGetIndexReqs = append(srcGetIndexReqs, srcIndexName+getUri)
+		srcPutIndexReqs = append(srcPutIndexReqs, srcIndexName+putUri)
+	}
+
+	param := `{
+        "properties": {
+          "age" : {
+            "type" : "integer"
+          }
+        }}`
+
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcPutIndexReqs[i]), gomock.Eq(param)).Return(nil, errors[i])
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.setIndexMappingsInternal(srcIndexNames[i], param)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcPutIndexReqs[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndexMappingsInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "index name or param is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.setIndexMappingsInternal("", "yy")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_CreateIndexInternal_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15"}
+	uri := "?pretty"
+	srcIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uri)
+	}
+	params := []string{`{}`, `{}`}
+
+	srcIndexResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReqs[i]), gomock.Eq(params[i])).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.createIndexInternal(srcIndexName)
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexReqs[i], err)
+		}
+	}
+} // }}}
+
+func Test_CreateIndexInternal_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	srcIndexName := "just_tests_18"
+	uri := "?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.createIndexInternal(srcIndexName)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_CreateIndexInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexName := "just_tests_18"
+	uri := "?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.createIndexInternal(srcIndexName)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetRecoveryInfo_Normal_Get(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryResps := []string{`{
+  "just_tests_11": {
+    "shards": [
+      {
+        "id": 2,
+        "type": "PEER",
+        "stage": "INDEX",
+        "primary": true,
+        "start_time_in_millis": 1623849678021,
+        "total_time_in_millis": 790259,
+        "source": {
+          "id": "GHbHRBgjTomKe0MDdFeoIQ",
+          "host": "xxx.xxx.xxx.xx",
+          "transport_address": "xxx.xxx.xxx.xx:31111",
+          "ip": "xxx.xxx.xxx.xx",
+          "name": "Data_xxx.xxx.xxx.xx"
+        },
+        "target": {
+          "id": "Hos25BbiQLq6-wXnV0MoAw",
+          "host": "yyy.yyy.yyy.yy",
+          "transport_address": "yyy.yyy.yyy.yy:40160",
+          "ip": "yyy.yyy.yyy.yy",
+          "name": "Data_yyy.yyy.yyy.yy"
+        },
+        "index": {
+          "size": {
+            "total_in_bytes": 34359750872,
+            "reused_in_bytes": 0,
+            "recovered_in_bytes": 16673608345,
+            "percent": "48.5%"
+          },
+          "files": {
+            "total": 458,
+            "reused": 0,
+            "recovered": 447,
+            "percent": "97.6%"
+          },
+          "total_time_in_millis": 790122,
+          "source_throttle_time_in_millis": 135702,
+          "target_throttle_time_in_millis": 449688
+        },
+        "translog": {
+          "recovered": 0,
+          "total": 360,
+          "percent": "0.0%",
+          "total_on_start": 360,
+          "total_time_in_millis": 0
+        },
+        "verify_index": {
+          "check_index_time_in_millis": 0,
+          "total_time_in_millis": 0
+        }
+      }
+    ]
+  }
+}`, `{
+  "just_tests_11": { }
+}`, `{
+}`,
+	}
+
+	for _, srcGetRecoveryResp := range srcGetRecoveryResps {
+		var srcGetRecoveryRespMap map[string]interface{}
+		err := json.Unmarshal([]byte(srcGetRecoveryResp), &srcGetRecoveryRespMap)
+		if err != nil {
+			t.Fatalf("Failed to json unmarshall:%v err:%v", srcGetRecoveryResp, err)
+		}
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryResp), nil)
+
+		compositeOp := Create(mockEsOp)
+		respMap, respByte, err := compositeOp.GetRecoveryInfo()
+		if err != nil {
+			t.Fatalf("Failed to check %v, err:%v", srcGetRecoveryReq, err)
+		}
+
+		if respByte != srcGetRecoveryResp {
+			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcGetRecoveryResp)
+		}
+
+		if len(respMap) != len(srcGetRecoveryRespMap) {
+			t.Fatalf("Num:%v of RespMap not equal to mock resp:%v", len(respMap), len(srcGetRecoveryRespMap))
+		}
+		cmpDiff := cmp.Diff(respMap, srcGetRecoveryRespMap)
+		if cmpDiff != "" {
+			t.Fatalf("Value:%v not equal to src:%v, diff:%v", respMap, srcGetRecoveryRespMap, cmpDiff)
+		}
+	}
+} // }}}
+
+func Test_GetRecoveryInfo_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "index_not_found_exception",
+        "reason" : "no such index",
+        "index_uuid" : "_na_",
+        "index" : "aaa"
+      }
+    ],
+    "type" : "index_not_found_exception",
+    "reason" : "no such index",
+    "index_uuid" : "_na_",
+    "index" : "aaa"
+  },
+  "status" : 404
+}`,
+	}
+
+	for i, _ := range srcGetRecoveryResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		_, _, err := compositeOp.GetRecoveryInfo()
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetRecoveryInfo_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, _, err := compositeOp.GetRecoveryInfo()
+		if err == nil {
+			t.Fatalf("Expect getInfoInternal %v excute failed, but err is nil", srcGetRecoveryReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndiceAllocationOnAndOff_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndiceName := "just_tests_01"
+	srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+	srcGetIndiceResp := `green  open  just_tests_01       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+	// GetIndexSetttingsOfKey
+	srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcGetIndexSettingsResp := `{
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+	// setIndexSettingsInternal
+	srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcBeforeSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+	srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+
+	// GetIndice
+	srcGetIndiceYellowResp := `yellow  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+
+	srcGetIndiceGreenResp := `green  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryNotInResp := `{
+  "just_tests_11": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	srcBeforeSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndiceName, err)
+	}
+} // }}}
+
+func Test_SetIndiceAllocationOnAndOff_Normal_AllocationExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndiceName := "just_tests_01"
+	srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+	srcGetIndiceResp := `green  open  just_tests_01       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+	// GetIndexSetttingsOfKey
+	srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcGetIndexSettingsResp := `{
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+	// setIndexSettingsInternal
+	srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcBeforeSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+	srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+
+	// GetIndice
+	srcGetIndiceYellowResp := `yellow  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+
+	srcGetIndiceGreenResp := `green  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryNotInResp := `{
+  "just_tests_11": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	srcBeforeSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndiceName, err)
+	}
+} // }}}
+
+func Test_SetIndiceAllocationOnAndOff_Normal_AllocationAll(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndiceName := "just_tests_01"
+	srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+	srcGetIndiceResp := `green  open  just_tests_01       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+	// GetIndexSetttingsOfKey
+	srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcGetIndexSettingsResp := `{
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+	// setIndexSettingsInternal
+	// It's not used because allocaiton is all
+	srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+	// GetIndice
+	srcGetIndiceYellowResp := `yellow  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+
+	srcGetIndiceGreenResp := `green  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryNotInResp := `{
+  "just_tests_11": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	srcBeforeSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndiceName, err)
+	}
+} // }}}
+
+func Test_SetIndiceAllocationOnAndOff_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or index name or waitSeconds is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.SetIndiceAllocationOnAndOff("", "yy", 1)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndiceName := "just_tests_01"
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndiceAllocationOnAndOff_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "index_not_found_exception",
+        "reason" : "no such index",
+        "index_uuid" : "_na_",
+        "index" : "aaa"
+      }
+    ],
+    "type" : "index_not_found_exception",
+    "reason" : "no such index",
+    "index_uuid" : "_na_",
+    "index" : "aaa"
+  },
+  "status" : 404
+}`,
+	}
+
+	for i, _ := range srcCheckClusterResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndiceAllocationOnAndOff_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
+		if err == nil {
+			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_CreateIndice_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// createIndexInternal
+	srcIndiceName := "just_tests_01"
+	srcCreateIndexReq := srcIndiceName + "?pretty"
+	srcCreateIndexResp := `{ "acknowledged" : true }`
+	createParam := "{}"
+
+	mockEsOp.EXPECT().Put(gomock.Eq(srcCreateIndexReq), gomock.Eq(createParam)).Return([]byte(srcCreateIndexResp), nil)
+
+	// Cluster check
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+	srcGetIndiceResp := `green  open  just_tests_01       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+	// GetIndexSetttingsOfKey
+	srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcGetIndexSettingsResp := `{
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+	// setIndexSettingsInternal
+	srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcBeforeSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+	srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+
+	// GetIndice
+	srcGetIndiceYellowResp := `yellow  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+
+	srcGetIndiceGreenResp := `green  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryNotInResp := `{
+  "just_tests_11": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	srcBeforeSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndiceName, err)
+	}
+} // }}}
+
+func Test_CreateIndice_Normal_AllocationExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// createIndexInternal
+	srcIndiceName := "just_tests_01"
+	srcCreateIndexReq := srcIndiceName + "?pretty"
+	srcCreateIndexResp := `{ "acknowledged" : true }`
+	createParam := "{}"
+
+	mockEsOp.EXPECT().Put(gomock.Eq(srcCreateIndexReq), gomock.Eq(createParam)).Return([]byte(srcCreateIndexResp), nil)
+
+	// Cluster check
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+	srcGetIndiceResp := `green  open  just_tests_01       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+	// GetIndexSetttingsOfKey
+	srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcGetIndexSettingsResp := `{
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+	// setIndexSettingsInternal
+	srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcBeforeSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+	srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+
+	// GetIndice
+	srcGetIndiceYellowResp := `yellow  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+
+	srcGetIndiceGreenResp := `green  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryNotInResp := `{
+  "just_tests_11": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	srcBeforeSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndiceName, err)
+	}
+} // }}}
+
+func Test_CreateIndice_Normal_AllocationAll(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// createIndexInternal
+	srcIndiceName := "just_tests_01"
+	srcCreateIndexReq := srcIndiceName + "?pretty"
+	srcCreateIndexResp := `{ "acknowledged" : true }`
+	createParam := "{}"
+
+	mockEsOp.EXPECT().Put(gomock.Eq(srcCreateIndexReq), gomock.Eq(createParam)).Return([]byte(srcCreateIndexResp), nil)
+
+	// Cluster check
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+	srcGetIndiceResp := `green  open  just_tests_01       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+	// GetIndexSetttingsOfKey
+	srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcGetIndexSettingsResp := `{
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+	// setIndexSettingsInternal
+	// It's not used because allocaiton is all
+	srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+	// GetIndice
+	srcGetIndiceYellowResp := `yellow  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+
+	srcGetIndiceGreenResp := `green  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryNotInResp := `{
+  "just_tests_11": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	srcBeforeSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndiceName, err)
+	}
+} // }}}
+
+func Test_CreateIndice_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or index name or waitSeconds is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.CreateIndice("", "yy", 1)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_CreateIndice_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndiceName := "just_tests_01"
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_CreateIndice_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "index_not_found_exception",
+        "reason" : "no such index",
+        "index_uuid" : "_na_",
+        "index" : "aaa"
+      }
+    ],
+    "type" : "index_not_found_exception",
+    "reason" : "no such index",
+    "index_uuid" : "_na_",
+    "index" : "aaa"
+  },
+  "status" : 404
+}`,
+	}
+
+	for i, _ := range srcCheckClusterResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_CreateIndice_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
+		if err == nil {
+			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndiceSettings_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// GetIndice
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18"}
+	uri := "/_settings?pretty"
+	srcGetIndiceReqs := make([]string, 0)
+	srcIndexSettingsReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcIndexSettingsReqs = append(srcIndexSettingsReqs, srcIndexName+uri)
+		srcGetIndiceReqs = append(srcGetIndiceReqs, "_cat/indices/"+srcIndexName+"?pretty")
+	}
+
+	srcGetIndiceResps := []string{
+		`green  open  just_tests_10       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`,
+		`green  open  just_tests_15       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`,
+		`green  open  just_tests_18       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`,
+	}
+
+	// setIndexSettingsInternal
+	srcBeforeGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_15",
+        "creation_date" : "1609029784313",
+        "number_of_replicas" : "2",
+        "uuid" : "MX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "just_tests_10" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_10",
+        "creation_date" : "1609029284313",
+        "number_of_replicas" : "5",
+        "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_15" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_15",
+        "creation_date" : "1609029784313",
+        "number_of_replicas" : "5",
+        "uuid" : "MX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`, `{
+  "just_tests_18" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88",
+        "provided_name" : "just_tests_18",
+        "creation_date" : "1679029784313",
+        "number_of_replicas" : "50",
+        "uuid" : "JX5jxasdYQvidcOasdDPdblQ",
+        "version" : {
+          "created" : "6030999"
+        }
+      }
+    }
+  }
+}`,
+	}
+
+	params := []string{`{
+        "index.routing.allocation.enable": "none"
+    }`, `{
+        "index.number_of_replicas":"5"
+    }`, `{
+        "index.number_of_replicas":"50"
+    }`, `{
+    }`,
+	}
+
+	srcIndexPutResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReqs[i])).Return([]byte(srcGetIndiceResps[i]), nil)
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexSettingsReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcIndexSettingsReqs[i]), gomock.Eq(params[i])).Return([]byte(srcIndexPutResps[i]), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexSettingsReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndexName, params[i])
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexSettingsReqs[i], err)
+		}
+
+		// Check file
+		logDir := "./log/" + time.Now().Format("20060102")
+		defer os.RemoveAll(logDir)
+		prefixPath := logDir + "/" + srcIndexName + ".settings." + time.Now().Format("20060102030405")
+		beforePath := prefixPath + ".before"
+		afterPath := prefixPath + ".after"
+
+		readCnt, err := ReadWholeFile(beforePath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", beforePath, err)
+		}
+
+		if len(readCnt) != len(srcBeforeGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), beforePath, len(srcBeforeGetResps[i]))
+		}
+		if string(readCnt) != srcBeforeGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcBeforeGetResps[i])
+		}
+
+		readCnt, err = ReadWholeFile(afterPath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", afterPath, err)
+		}
+
+		if len(readCnt) != len(srcAfterGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), afterPath, len(srcAfterGetResps[i]))
+		}
+		if string(readCnt) != srcAfterGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcAfterGetResps[i])
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndiceSettings_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndiceName := "just_tests_01"
+	settingParam := `{"index.routing.allocation.enable": "none"}`
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndiceName, settingParam)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndiceSettings_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or index name or settings is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.SetIndiceSettings("aa", "", "bb")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndiceSettings_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "index_not_found_exception",
+        "reason" : "no such index",
+        "index_uuid" : "_na_",
+        "index" : "aaa"
+      }
+    ],
+    "type" : "index_not_found_exception",
+    "reason" : "no such index",
+    "index_uuid" : "_na_",
+    "index" : "aaa"
+  },
+  "status" : 404
+}`,
+	}
+
+	for i, _ := range srcCheckClusterResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		settingParam := `{"index.routing.allocation.enable": "none"}`
+		err := compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndiceName, settingParam)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndiceSettings_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		settingParam := `{"index.routing.allocation.enable": "none"}`
+		err := compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndiceName, settingParam)
+		if err == nil {
+			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndiceMapping_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// GetIndice
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18"}
+	getUris := []string{"/_mapping?pretty", "/_mapping?pretty", "/_mapping?pretty"}
+	putUris := []string{"/_mapping/_doc?pretty", "/_mapping/_doc?pretty", "/_mapping/_doc?pretty"}
+	srcGetIndiceReqs := make([]string, 0)
+	srcGetIndexMappingReqs := make([]string, 0)
+	srcPutIndexMappingReqs := make([]string, 0)
+	for i, srcIndexName := range srcIndexNames {
+		srcGetIndexMappingReqs = append(srcGetIndexMappingReqs, srcIndexName+getUris[i])
+		srcPutIndexMappingReqs = append(srcPutIndexMappingReqs, srcIndexName+putUris[i])
+
+		srcGetIndiceReqs = append(srcGetIndiceReqs, "_cat/indices/"+srcIndexName+"?pretty")
+	}
+
+	srcGetIndiceResps := []string{
+		`green  open  just_tests_10       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`,
+		`green  open  just_tests_15       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`,
+		`green  open  just_tests_18       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`,
+	}
+
+	// setIndexMappingsInternal
+	srcBeforeGetResps := []string{` {
+  "tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_15" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false
+          }
+        }
+      }
+    }
+  }
+}`, `{
+}`,
+	}
+
+	srcAfterGetResps := []string{` {
+  "tests_10" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "copy_to_name" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false,
+            "copy_to" : [
+              "copy_to_name"
+            ]
+          },
+          "age" : {
+            "type" : "integer"
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_15" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          },
+          "name" : {
+            "type" : "keyword",
+            "doc_values" : false
+          },
+          "hehe" : {
+            "type" : "keyword",
+            "index" : false,
+            "doc_values" : false
+          }
+        }
+      }
+    }
+  }
+}`, `{
+  "tests_18" : {
+    "mappings" : {
+      "_doc" : {
+        "dynamic" : "strict",
+        "properties" : {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          }
+        }
+      }
+    }
+  }
+}`,
+	}
+
+	params := []string{`{
+        "properties": {
+          "age" : {
+            "type" : "integer"
+          }
+        }
+    }`, `{
+        "properties": {
+          "hehe" : {
+            "type" : "keyword",
+            "index" : false,
+            "doc_values" : false,
+          }
+      }
+    }`, `{
+        "properties": {
+          "country" : {
+            "type" : "keyword",
+            "index" : false
+          }
+      }
+    }`,
+	}
+
+	srcIndexPutResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReqs[i])).Return([]byte(srcGetIndiceResps[i]), nil)
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexMappingReqs[i])).Return([]byte(srcBeforeGetResps[i]), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcPutIndexMappingReqs[i]),
+			gomock.Eq(params[i])).Return([]byte(srcIndexPutResps[i]), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexMappingReqs[i])).Return([]byte(srcAfterGetResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndexName, params[i])
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcPutIndexMappingReqs[i], err)
+		}
+
+		// Check file
+		logDir := "./log/" + time.Now().Format("20060102")
+		defer os.RemoveAll(logDir)
+		prefixPath := logDir + "/" + srcIndexName + ".mapping." + time.Now().Format("20060102030405")
+		beforePath := prefixPath + ".before"
+		afterPath := prefixPath + ".after"
+
+		readCnt, err := ReadWholeFile(beforePath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", beforePath, err)
+		}
+
+		if len(readCnt) != len(srcBeforeGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), beforePath, len(srcBeforeGetResps[i]))
+		}
+		if string(readCnt) != srcBeforeGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcBeforeGetResps[i])
+		}
+
+		readCnt, err = ReadWholeFile(afterPath)
+		if err != nil {
+			t.Fatalf("Failed to read tmp file:%v, err:%v", afterPath, err)
+		}
+
+		if len(readCnt) != len(srcAfterGetResps[i]) {
+			t.Fatalf("get num %v from %v not equal to %v", len(readCnt), afterPath, len(srcAfterGetResps[i]))
+		}
+		if string(readCnt) != srcAfterGetResps[i] {
+			t.Fatalf("value:%v not equal to src content:%v", string(readCnt), srcAfterGetResps[i])
+		}
+	}
+
+	time.Sleep(1 * time.Second)
+} // }}}
+
+func Test_SetIndiceMapping_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green", "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndiceName := "just_tests_01"
+	mappingParam := `{"properties":{"age":{"type":"integer" } } }`
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndiceName, mappingParam)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndiceMapping_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or index name or mappings is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.SetIndiceMapping("aa", "cc", "")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetIndiceMapping_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "index_not_found_exception",
+        "reason" : "no such index",
+        "index_uuid" : "_na_",
+        "index" : "aaa"
+      }
+    ],
+    "type" : "index_not_found_exception",
+    "reason" : "no such index",
+    "index_uuid" : "_na_",
+    "index" : "aaa"
+  },
+  "status" : 404
+}`,
+	}
+
+	for i, _ := range srcCheckClusterResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		mappingParam := `{"properties":{"age":{"type":"integer"} } }`
+		err := compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndiceName, mappingParam)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetIndiceMapping_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		srcIndiceName := "just_tests_01"
+		mappingParam := `{"properties":{"age":{"type":"integer"} } }`
+		err := compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndiceName, mappingParam)
+		if err == nil {
+			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_PostIndexInternal_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "just_tests_19"}
+	uris := []string{"/_close?pretty", "/_close?pretty", "/_open/_doc?pretty", "/_open/_doc?pretty"}
+	srcIndexReqs := make([]string, 0)
+	for i, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uris[i])
+	}
+
+	params := []string{`{}`, `{}`, `{}`, `{}`}
+
+	srcIndexResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true,
+      "shards_acknowledged" : true
+}`, `{
+      "acknowledged" : true,
+      "shards_acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReqs[i]), gomock.Eq(params[i])).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		respByte, err := compositeOp.postIndexInternal(srcIndexName, uris[i], params[i])
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexReqs[i], err)
+		}
+
+		if respByte != srcIndexResps[i] {
+			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcIndexResps[i])
+		}
+	}
+} // }}}
+
+func Test_PostIndexInternal_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	srcIndexName := "just_tests_18"
+	uri := "/_close?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.postIndexInternal(srcIndexName, uri, param)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_PostIndexInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexName := "just_tests_18"
+	uri := "/_open?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.postIndexInternal(srcIndexName, uri, param)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_PostIndexInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "index name or uri or param is nil"}
+	compositeOp := Create(nil)
+	_, err := compositeOp.postIndexInternal("", "xx", "yy")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_CloseIndice_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "just_tests_19"}
+	uri := "/_close?pretty"
+	srcIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uri)
+	}
+
+	params := []string{`{}`, `{}`, `{}`, `{}`}
+
+	srcIndexResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true,
+      "shards_acknowledged" : true
+}`, `{
+      "acknowledged" : true,
+      "shards_acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReqs[i]), gomock.Eq(params[i])).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.CloseIndice(srcCheckClusterName, srcIndexName)
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexReqs[i], err)
+		}
+	}
+} // }}}
+
+func Test_CloseIndice_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green", "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndiceName := "just_tests_01"
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.CloseIndice(srcCheckClusterName, srcIndiceName)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_CloseIndice_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	srcIndexName := "just_tests_18"
+	uri := "/_close?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.CloseIndice(srcCheckClusterName, srcIndexName)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_CloseIndice_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// postIndexInternal
+	srcIndexName := "just_tests_18"
+	uri := "/_close?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.CloseIndice(srcCheckClusterName, srcIndexName)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_CloseIndice_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or index name is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.CloseIndice("", "xx")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_OpenIndice_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "just_tests_19"}
+	uri := "/_open?pretty"
+	srcIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uri)
+	}
+
+	params := []string{`{}`, `{}`, `{}`, `{}`}
+
+	srcIndexResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true,
+      "shards_acknowledged" : true
+}`, `{
+      "acknowledged" : true,
+      "shards_acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReqs[i]), gomock.Eq(params[i])).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.OpenIndice(srcCheckClusterName, srcIndexName)
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexReqs[i], err)
+		}
+	}
+} // }}}
+
+func Test_OpenIndice_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green", "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndiceName := "just_tests_01"
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.OpenIndice(srcCheckClusterName, srcIndiceName)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_OpenIndice_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	srcIndexName := "just_tests_18"
+	uri := "/_open?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.OpenIndice(srcCheckClusterName, srcIndexName)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_OpenIndice_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// postIndexInternal
+	srcIndexName := "just_tests_18"
+	uri := "/_open?pretty"
+	srcIndexReq := srcIndexName + uri
+	param := "{}"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.OpenIndice(srcCheckClusterName, srcIndexName)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_OpenIndice_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or index name is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.OpenIndice("mm", "")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_DeleteIndexInternal_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexNames := []string{"just_tests_10", "just_tests_15"}
+	uris := []string{"?expand_wildcards=closed&pretty", "?pretty"}
+	srcIndexReqs := make([]string, 0)
+	for i, srcIndexName := range srcIndexNames {
+		srcIndexReqs = append(srcIndexReqs, srcIndexName+uris[i])
+	}
+
+	srcIndexResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Delete(gomock.Eq(srcIndexReqs[i])).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		respByte, err := compositeOp.deleteIndexInternal(srcIndexName, uris[i])
+		if err != nil {
+			t.Fatalf("Failed to set %v, err:%v", srcIndexReqs[i], err)
+		}
+
+		if respByte != srcIndexResps[i] {
+			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcIndexResps[i])
+		}
+	}
+} // }}}
+
+func Test_DeleteIndexInternal_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	srcIndexName := "just_tests_18"
+	uri := "?expand_wildcards=closed&pretty"
+	srcIndexReq := srcIndexName + uri
+	srcIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Delete(gomock.Eq(srcIndexReq)).Return([]byte(srcIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.deleteIndexInternal(srcIndexName, uri)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_DeleteIndexInternal_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcIndexName := "just_tests_18"
+	uri := "?expand_wildcards=closed&pretty"
+	srcIndexReq := srcIndexName + uri
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Delete(gomock.Eq(srcIndexReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		_, err := compositeOp.deleteIndexInternal(srcIndexName, uri)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_DeleteIndexInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "index name or uri is nil"}
+	compositeOp := Create(nil)
+	_, err := compositeOp.deleteIndexInternal("", "xx")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_DeleteCloseIndice_Normal_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// GetIndice
+	srcIndexNames := []string{"just_tests_10", "just_tests_15"}
+	srcGetIndiceReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcGetIndiceReqs = append(srcGetIndiceReqs, "_cat/indices/"+srcIndexName+"?pretty")
+	}
+
+	srcGetIndiceResps := []string{
+		`close just_tests_10               VInnpfgbQU-oYVMItaliaw`,
+		`close just_tests_15               VInnpfgbQU-oYVMItaliaw`,
+	}
+
+	// deleteIndexInternal
+	uri := "?expand_wildcards=closed&pretty"
+	srcDeleteIndexReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcDeleteIndexReqs = append(srcDeleteIndexReqs, srcIndexName+uri)
+	}
+
+	srcDeleteIndexResps := []string{`{
+      "acknowledged" : true
+}`, `{
+      "acknowledged" : true
+}`,
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReqs[i])).Return([]byte(srcGetIndiceResps[i]), nil)
+
+		mockEsOp.EXPECT().Delete(gomock.Eq(srcDeleteIndexReqs[i])).Return([]byte(srcDeleteIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.DeleteClosedIndice(srcCheckClusterName, srcIndexName)
+		if err != nil {
+			t.Fatalf("Failed to delete %v, err:%v", srcDeleteIndexReqs[i], err)
+		}
+	}
+} // }}}
+
+func Test_DeleteCloseIndice_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green", "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndiceName := "just_tests_01"
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.DeleteClosedIndice(srcCheckClusterName, srcIndiceName)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_DeleteCloseIndice_Exception_IndiceNotClose(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// GetIndice
+	srcIndexNames := []string{"just_tests_10", "just_tests_15"}
+	srcGetIndiceReqs := make([]string, 0)
+	for _, srcIndexName := range srcIndexNames {
+		srcGetIndiceReqs = append(srcGetIndiceReqs, "_cat/indices/"+srcIndexName+"?pretty")
+	}
+
+	srcGetIndiceResps := []string{
+		`green  open  just_tests_10               G7S28w0dS7qJ8yLTYsI7QA  1 1      3    0  20.8kb  10.4kb`,
+		`yellow  open  just_tests_15               G7S28w0dS7qJ8yLTYsI7QA  1 1      3    0  20.8kb  10.4kb`,
+	}
+
+	errors := []Error{
+		{ErrNotClosed, "Not closed of"},
+		{ErrNotClosed, "Not closed of"},
+	}
+
+	for i, srcIndexName := range srcIndexNames {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReqs[i])).Return([]byte(srcGetIndiceResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.DeleteClosedIndice(srcCheckClusterName, srcIndexName)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_DeleteCloseIndice_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// GetIndice
+	srcIndexName := "just_tests_10"
+	srcGetIndiceReq := "_cat/indices/" + srcIndexName + "?pretty"
+	srcGetIndiceResp := "close just_tests_10               VInnpfgbQU-oYVMItaliaw"
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	uri := "?expand_wildcards=closed&pretty"
+	srcDeleteIndexReq := srcIndexName + uri
+	srcDeleteIndexResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/settings/update]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "Can't update non dynamic settings [[index.number_of_shards]] for open indices [[tests_3/o7t]]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "remote_transport_exception",
+            "reason" : "[Master_1][localhost:9999][indices:admin/mapping/put]"
+        }
+        ],
+        "type" : "illegal_argument_exception",
+        "reason" : "mapper [status] of different type, current_type [long], merged_type [keyword]"
+    },
+    "status" : 400
+}`, `{
+    "error" : {
+        "root_cause" : [
+        {
+            "type" : "mapper_parsing_exception",
+            "reason" : "No handler for type [aaa] declared on field [status]"
+        }
+        ],
+        "type" : "mapper_parsing_exception",
+        "reason" : "No handler for type [aaa] declared on field [status]"
+    },
+    "status" : 400
+}`,
+	}
+
+	for i, _ := range srcDeleteIndexResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+		mockEsOp.EXPECT().Delete(gomock.Eq(srcDeleteIndexReq)).Return([]byte(srcDeleteIndexResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.DeleteClosedIndice(srcCheckClusterName, srcIndexName)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_DeleteCloseIndice_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	// GetIndice
+	srcIndexName := "just_tests_10"
+	srcGetIndiceReq := "_cat/indices/" + srcIndexName + "?pretty"
+	srcGetIndiceResp := "close just_tests_10               VInnpfgbQU-oYVMItaliaw"
+
+	uri := "?expand_wildcards=closed&pretty"
+	srcDeleteIndexReq := srcIndexName + uri
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+		mockEsOp.EXPECT().Delete(gomock.Eq(srcDeleteIndexReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		err := compositeOp.DeleteClosedIndice(srcCheckClusterName, srcIndexName)
+		if err == nil {
+			t.Fatalf("Expect to be failed:%v, but err is nil", srcDeleteIndexReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_DeleteCloseIndice_Exception_EmptyIndexName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or index name is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.DeleteClosedIndice("yy", "")
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
 	}
 
 	code, _ := DecodeErr(err)

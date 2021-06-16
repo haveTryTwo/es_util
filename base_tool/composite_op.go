@@ -41,7 +41,7 @@ func (compositeOp *CompositeOp) getInfoInternal(uri string) (map[string]interfac
 	var respMap map[string]interface{}
 	err = json.Unmarshal(respByte, &respMap)
 	if err != nil {
-		log.Printf("Failed to parse json?pretty, err:%v", err.Error())
+		log.Printf("Failed to parse json?pretty, uri:%v, err:%v", uri, err.Error())
 		return nil, string(respByte), Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
 	}
 
@@ -309,33 +309,33 @@ func (compositeOp *CompositeOp) GetIndexMapping(indexName string) (map[string]in
 	return compositeOp.getInfoInternal(indexName + "/_mapping?pretty")
 } // }}}
 
-func (compositeOp *CompositeOp) setIndexInternal(indexName string, uri string, params string) error { // {{{
+func (compositeOp *CompositeOp) setIndexInternal(indexName string, uri string, params string) (string, error) { // {{{
 	if indexName == "" || uri == "" || params == "" {
-		return Error{Code: ErrInvalidParam, Message: "index name or uri or param is nil"}
+		return "", Error{Code: ErrInvalidParam, Message: "index name or uri or param is nil"}
 	}
 
 	respByte, err := compositeOp.EsOp.Put(indexName+uri, params)
 	if err != nil {
 		log.Printf("Failed to put %v?pretty params:%v, err:%v\n", indexName, params, err.Error())
-		return err
+		return "", err
 	}
-	log.Printf("Resp of put %v%v, params:%v, %v", indexName, uri, params, string(respByte))
+	// log.Printf("Resp of put %v%v, params:%v, %v", indexName, uri, params, string(respByte))
 
 	var respMap map[string]interface{}
 	err = json.Unmarshal(respByte, &respMap)
 	if err != nil {
 		log.Printf("Failed to put %v%v params:%v, err:%v\n", indexName, uri, params, err.Error())
-		return Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
+		return "", Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
 	}
 
 	if respMap["error"] != nil || respMap["status"] != nil {
-		return Error{Code: ErrRespErr, Message: "Resp of create error:" + string(respByte)}
+		return "", Error{Code: ErrRespErr, Message: "Resp of create error:" + string(respByte)}
 	}
 
-	return nil
+	return string(respByte), nil
 } // }}}
 
-func (compositeOp *CompositeOp) setIndexSetingsInternal(indexName string, params string) error { // {{{
+func (compositeOp *CompositeOp) setIndexSettingsInternal(indexName string, params string) error { // {{{
 	if indexName == "" || params == "" {
 		return Error{Code: ErrInvalidParam, Message: "index name or param is nil"}
 	}
@@ -345,7 +345,7 @@ func (compositeOp *CompositeOp) setIndexSetingsInternal(indexName string, params
 		return err
 	}
 
-	setErr := compositeOp.setIndexInternal(indexName, "/_settings?pretty", params)
+	_, setErr := compositeOp.setIndexInternal(indexName, "/_settings?pretty", params)
 
 	_, respByteAfter, err := compositeOp.GetIndexSettings(indexName)
 	if err != nil {
@@ -354,6 +354,9 @@ func (compositeOp *CompositeOp) setIndexSetingsInternal(indexName string, params
 	}
 
 	Diff(indexName+".settings", respByteBefore, respByteAfter)
+	if err != nil {
+		log.Printf("Failed to diff %v, err:%v", indexName+".settings", err)
+	}
 
 	return setErr
 } // }}}
@@ -367,7 +370,7 @@ func (compositeOp *CompositeOp) setIndexMappingsInternal(indexName string, param
 		return err
 	}
 
-	setErr := compositeOp.setIndexInternal(indexName, "/_mapping/_doc?pretty", params)
+	_, setErr := compositeOp.setIndexInternal(indexName, "/_mapping/_doc?pretty", params)
 
 	_, respByteAfter, err := compositeOp.GetIndexMapping(indexName)
 	if err != nil {
@@ -381,9 +384,9 @@ func (compositeOp *CompositeOp) setIndexMappingsInternal(indexName string, param
 } // }}}
 
 func (compositeOp *CompositeOp) createIndexInternal(indexName string) error { // {{{
-	return compositeOp.setIndexInternal(indexName, "?pretty", "{}")
+	_, setErr := compositeOp.setIndexInternal(indexName, "?pretty", "{}")
+	return setErr
 } // }}}
-
 // Get recovery infomation of cluster
 func (compositeOp *CompositeOp) GetRecoveryInfo() (map[string]interface{}, string, error) { // {{{
 	return compositeOp.getInfoInternal("_recovery?active_only=true&pretty")
@@ -424,7 +427,7 @@ func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexNa
 
 	if enableValue != "all" {
 		params := "{\"index.routing.allocation.enable\":\"all\"}"
-		err = compositeOp.setIndexSetingsInternal(indexName, params)
+		err = compositeOp.setIndexSettingsInternal(indexName, params)
 		if err != nil {
 			log.Printf("Failed to set index.routing.allocation.enable %v?pretty, err:%v\n", indexName, err.Error())
 			return err
@@ -462,7 +465,7 @@ func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexNa
 	}
 
 	params := "{\"index.routing.allocation.enable\":\"none\"}"
-	err = compositeOp.setIndexSetingsInternal(indexName, params)
+	err = compositeOp.setIndexSettingsInternal(indexName, params)
 	if err != nil {
 		log.Printf("Failed to create %v?pretty, err:%v\n", indexName, err.Error())
 		return err
@@ -524,7 +527,7 @@ func (compositeOp *CompositeOp) SetIndiceSettings(clusterName, indexName, settin
 		return err
 	}
 
-	err = compositeOp.setIndexSetingsInternal(indexName, settings)
+	err = compositeOp.setIndexSettingsInternal(indexName, settings)
 	if err != nil {
 		log.Printf("Failed to set index:%v for setting:%v ?pretty, err:%v\n", indexName, settings, err.Error())
 		return err
@@ -564,30 +567,30 @@ func (compositeOp *CompositeOp) SetIndiceMapping(clusterName, indexName, mapping
 	return nil
 } // }}}
 
-func (compositeOp *CompositeOp) postIndexInternal(indexName string, uri string, params string) error { // {{{
+func (compositeOp *CompositeOp) postIndexInternal(indexName string, uri string, params string) (string, error) { // {{{
 	if indexName == "" || uri == "" || params == "" {
-		return Error{Code: ErrInvalidParam, Message: "index name or uri or param is nil"}
+		return "", Error{Code: ErrInvalidParam, Message: "index name or uri or param is nil"}
 	}
 
 	respByte, err := compositeOp.EsOp.Post(indexName+uri, params)
 	if err != nil {
 		log.Printf("Failed to post %v?pretty params:%v, err:%v\n", indexName, params, err.Error())
-		return err
+		return "", err
 	}
-	log.Printf("Resp of post %v%v, params:%v, %v", indexName, uri, params, string(respByte))
+	// log.Printf("Resp of post %v%v, params:%v, %v", indexName, uri, params, string(respByte))
 
 	var respMap map[string]interface{}
 	err = json.Unmarshal(respByte, &respMap)
 	if err != nil {
 		log.Printf("Failed to post %v%v params:%v, err:%v\n", indexName, uri, params, err.Error())
-		return Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
+		return string(respByte), Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
 	}
 
 	if respMap["error"] != nil || respMap["status"] != nil {
-		return Error{Code: ErrRespErr, Message: "Resp of error:" + string(respByte)}
+		return string(respByte), Error{Code: ErrRespErr, Message: "Resp of error:" + string(respByte)}
 	}
 
-	return nil
+	return string(respByte), nil
 } // }}}
 
 // Close indice
@@ -606,7 +609,7 @@ func (compositeOp *CompositeOp) CloseIndice(clusterName, indexName string) error
 		return Error{Code: ErrNotFound, Message: "Not found cluster_name:" + clusterName}
 	}
 
-	err = compositeOp.postIndexInternal(indexName, "/_close?pretty", "{}")
+	_, err = compositeOp.postIndexInternal(indexName, "/_close?pretty", "{}")
 	if err != nil {
 		log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
 		return err
@@ -631,7 +634,7 @@ func (compositeOp *CompositeOp) OpenIndice(clusterName, indexName string) error 
 		return Error{Code: ErrNotFound, Message: "Not found cluster_name:" + clusterName}
 	}
 
-	err = compositeOp.postIndexInternal(indexName, "/_open?pretty", "{}")
+	_, err = compositeOp.postIndexInternal(indexName, "/_open?pretty", "{}")
 	if err != nil {
 		log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
 		return err
@@ -640,30 +643,30 @@ func (compositeOp *CompositeOp) OpenIndice(clusterName, indexName string) error 
 	return nil
 } // }}}
 
-func (compositeOp *CompositeOp) deleteIndexInternal(indexName string, uri string) error { // {{{
+func (compositeOp *CompositeOp) deleteIndexInternal(indexName string, uri string) (string, error) { // {{{
 	if indexName == "" || uri == "" {
-		return Error{Code: ErrInvalidParam, Message: "index name or uri is nil"}
+		return "", Error{Code: ErrInvalidParam, Message: "index name or uri is nil"}
 	}
 
 	respByte, err := compositeOp.EsOp.Delete(indexName + uri)
 	if err != nil {
 		log.Printf("Failed to delete %v?pretty, err:%v\n", indexName, err.Error())
-		return err
+		return "", err
 	}
-	log.Printf("Resp of delete %v%v, %v", indexName, uri, string(respByte))
+	// log.Printf("Resp of delete %v%v, %v", indexName, uri, string(respByte))
 
 	var respMap map[string]interface{}
 	err = json.Unmarshal(respByte, &respMap)
 	if err != nil {
 		log.Printf("Failed to delete %v%v, err:%v\n", indexName, uri, err.Error())
-		return Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
+		return string(respByte), Error{Code: ErrJsonUnmarshalFailed, Message: err.Error()}
 	}
 
 	if respMap["error"] != nil || respMap["status"] != nil {
-		return Error{Code: ErrRespErr, Message: "Resp of error:" + string(respByte)}
+		return string(respByte), Error{Code: ErrRespErr, Message: "Resp of error:" + string(respByte)}
 	}
 
-	return nil
+	return string(respByte), nil
 } // }}}
 
 // Delete close indice
@@ -694,7 +697,7 @@ func (compositeOp *CompositeOp) DeleteClosedIndice(clusterName, indexName string
 			Message: "Not closed of " + indexName + " which Status is " + indicesInfo[0].Status}
 	}
 
-	err = compositeOp.deleteIndexInternal(indexName, "?expand_wildcards=closed&pretty")
+	_, err = compositeOp.deleteIndexInternal(indexName, "?expand_wildcards=closed&pretty")
 	if err != nil {
 		log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
 		return err
@@ -716,8 +719,14 @@ func Diff(prefixName string, before, after string) error { // {{{
 	beforePath := prefixPath + ".before"
 	afterPath := prefixPath + ".after"
 
-	beforeFile, _ := os.OpenFile(beforePath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
-	afterFile, _ := os.OpenFile(afterPath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	beforeFile, err := os.OpenFile(beforePath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return Error{Code: ErrOpenFileFailed, Message: err.Error()}
+	}
+	afterFile, err := os.OpenFile(afterPath, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return Error{Code: ErrOpenFileFailed, Message: err.Error()}
+	}
 
 	defer beforeFile.Close()
 	defer afterFile.Close()
