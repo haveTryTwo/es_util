@@ -152,7 +152,8 @@ func main() { // {{{
 	execStatusSuccess = true
 } // }}}
 
-func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonConfigs map[string]string, cmdCfgDir string) error { // {{{
+func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonConfigs map[string]string,
+	cmdCfgDir string) error { // {{{
 	// 执行命令
 	switch cmd {
 	case basetool.GetClusterHealth:
