@@ -2,5 +2,5 @@
 package basetool
 
 const (
-	ESToolVersion = "0.0.1"
+	ESToolVersion = "0.0.2"
 )
