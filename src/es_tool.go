@@ -387,13 +387,13 @@ func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonCo
 		}
 
 		for _, nohealthIndice := range nohealthIndices {
-			log.Printf("[Begin] to recovery unhealth index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
+			log.Printf("[Begin] to recover unhealthy index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
 			err = compositeOp.SetIndiceAllocationOnAndOff(clusterName, nohealthIndice.Name, waitSeconds)
 			if err != nil {
 				log.Printf("err:%v", err)
 				return err
 			}
-			log.Printf("[End] to recovery unhealth index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
+			log.Printf("[End] to recover unhealthy index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
 		}
 	case basetool.GetIndiceSettings:
 		// 获取待处理的索引列表

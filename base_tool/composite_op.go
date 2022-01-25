@@ -435,7 +435,7 @@ func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexNa
 	}
 
 	for {
-		log.Printf("wait %v seconds to get indces info\n", waitSeconds)
+		log.Printf("wait %v seconds to get indices info\n", waitSeconds)
 		time.Sleep(time.Duration(waitSeconds) * time.Second) // NOTE: 循环等一段时间，判断当前索引是否搬迁完毕
 
 		indicesInfo, err = compositeOp.GetIndice(indexName)
