@@ -65,5 +65,7 @@ func httpReqInternal(op string, url string, body io.Reader, client *http.Client)
 		return nil, Error{Code: ErrIoUtilReadAllFailed, Message: err.Error()}
 	}
 
+    defer client.CloseIdleConnections()
+
 	return respByte, nil
 } // }}}
