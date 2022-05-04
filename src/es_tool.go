@@ -224,35 +224,41 @@ func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonCo
 			return err
 		}
 
-		// 读取集群名称
-		clusterName, ok := cmdConfigs[basetool.ClusterName]
-		if !ok {
-			log.Printf("Not exist:%v", basetool.ClusterName)
-			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
-		}
-
-		// 读取等待时间
-		waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
-		if !ok {
-			log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
-			waitSecondsString = "10"
-		}
-
-		waitSeconds, err := strconv.Atoi(waitSecondsString)
+		err = setAllocationOnAndOffInternal(compositeOp, cmdConfigs, indiceLines)
 		if err != nil {
-			return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+			log.Printf("Failed to setAllocationOnAndOffInternal, err:%v", err)
+			return err
 		}
 
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to set allocaion on and off index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.SetIndiceAllocationOnAndOff(clusterName, indiceName, waitSeconds)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to set allocaion on and off index:%v of cluster:%v\n", indiceName, clusterName)
-		}
+		// // 读取集群名称
+		// clusterName, ok := cmdConfigs[basetool.ClusterName]
+		// if !ok {
+		// 	log.Printf("Not exist:%v", basetool.ClusterName)
+		// 	return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
+		// }
+
+		// // 读取等待时间
+		// waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
+		// if !ok {
+		// 	log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
+		// 	waitSecondsString = "10"
+		// }
+
+		// waitSeconds, err := strconv.Atoi(waitSecondsString)
+		// if err != nil {
+		// 	return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+		// }
+
+		// // 处理每一个索引
+		// for _, indiceName := range indiceLines {
+		// 	log.Printf("[Begin] to set allocaion on and off index:%v of cluster:%v\n", indiceName, clusterName)
+		// 	err = compositeOp.SetIndiceAllocationOnAndOff(clusterName, indiceName, waitSeconds)
+		// 	if err != nil {
+		// 		log.Printf("err:%v", err)
+		// 		return err
+		// 	}
+		// 	log.Printf("[End] to set allocaion on and off index:%v of cluster:%v\n", indiceName, clusterName)
+		// }
 	case basetool.CreateIndices:
 		// 获取待处理的索引列表
 		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
@@ -360,41 +366,83 @@ func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonCo
 			log.Printf("err:%v", err)
 			return err
 		}
-		nohealthIndices := make([]basetool.IndiceInfo, 0)
+		// nohealthIndices := make([]basetool.IndiceInfo, 0)
+		nohealthIndices := make([]string, 0)
 		for _, indiceInfo := range indicesInfo {
 			if indiceInfo.Status != basetool.Close && indiceInfo.Health != basetool.Green {
-				nohealthIndices = append(nohealthIndices, indiceInfo)
+				nohealthIndices = append(nohealthIndices, indiceInfo.Name)
 			}
 		}
 
-		// 读取集群名称
-		clusterName, ok := cmdConfigs[basetool.ClusterName]
-		if !ok {
-			log.Printf("Not exist:%v", basetool.ClusterName)
-			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
-		}
-
-		// 读取等待时间
-		waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
-		if !ok {
-			log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
-			waitSecondsString = "10"
-		}
-
-		waitSeconds, err := strconv.Atoi(waitSecondsString)
+		err = setAllocationOnAndOffInternal(compositeOp, cmdConfigs, nohealthIndices)
 		if err != nil {
-			return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+			log.Printf("Failed to setAllocationOnAndOffInternal, err:%v", err)
+			return err
 		}
 
-		for _, nohealthIndice := range nohealthIndices {
-			log.Printf("[Begin] to recover unhealthy index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
-			err = compositeOp.SetIndiceAllocationOnAndOff(clusterName, nohealthIndice.Name, waitSeconds)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to recover unhealthy index:%v of cluster:%v\n", nohealthIndice.Name, clusterName)
-		}
+		// // 读取集群名称
+		// clusterName, ok := cmdConfigs[basetool.ClusterName]
+		// if !ok {
+		// 	log.Printf("Not exist:%v", basetool.ClusterName)
+		// 	return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
+		// }
+
+		// // 读取等待时间
+		// waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
+		// if !ok {
+		// 	log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
+		// 	waitSecondsString = "10"
+		// }
+
+		// waitSeconds, err := strconv.Atoi(waitSecondsString)
+		// if err != nil {
+		// 	return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+		// }
+
+		// // 读取批量恢复索引时的方向
+		// opDirectionString, ok := cmdConfigs[basetool.OpDirection]
+		// if !ok {
+		// 	log.Printf("Not exist:%v, then using Positive(0) as default", basetool.OpDirection)
+		// 	opDirectionString = "0"
+		// }
+
+		// opDirection, err := strconv.Atoi(opDirectionString)
+		// if err != nil {
+		// 	return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "op direction not int: " + opDirectionString}
+		// }
+
+		// // 读取批量恢复索引时并发个数
+		// opIndexNumString, ok := cmdConfigs[basetool.OpIndexNum]
+		// if !ok {
+		// 	log.Printf("Not exist:%v, then using 1 as default", basetool.OpIndexNum)
+		// 	opIndexNumString = "0"
+		// }
+
+		// opIndexNum, err := strconv.Atoi(opIndexNumString)
+		// if err != nil {
+		// 	return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "op index num not int: " + opIndexNumString}
+		// }
+
+		// if opIndexNum > basetool.MaxConcurrentIndexNum {
+		//     return basetool.Error{Code: basetool.ErrInvalidNumber, Message:"Concurrent number " +
+		//        strconv.Itoa(opIndexNum) + " exceed " + strconv.Itoa(basetool.MaxConcurrentIndexNum)}
+		// }
+
+		// err = basetool.SortStringArr(nohealthIndices, opDirection)
+		// if err != nil {
+		//     log.Printf("Failed to sort arr, err:%v", err)
+		//     return err
+		// }
+
+		// for _, nohealthIndice := range nohealthIndices {
+		// 	log.Printf("[Begin] to recover unhealthy index:%v of cluster:%v\n", nohealthIndice, clusterName)
+		// 	err = compositeOp.SetIndiceAllocationOnAndOff(clusterName, nohealthIndice, waitSeconds)
+		// 	if err != nil {
+		// 		log.Printf("err:%v", err)
+		// 		return err
+		// 	}
+		// 	log.Printf("[End] to recover unhealthy index:%v of cluster:%v\n", nohealthIndice, clusterName)
+		// }
 	case basetool.GetIndiceSettings:
 		// 获取待处理的索引列表
 		indicesFile, ok := cmdConfigs[basetool.IndicesPath]
@@ -797,3 +845,80 @@ func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonCo
 
 	return nil
 } // }}}
+
+func setAllocationOnAndOffInternal(compositeOp *basetool.CompositeOp, cmdConfigs map[string]string,
+	indicesName []string) error {
+	// 读取集群名称
+	clusterName, ok := cmdConfigs[basetool.ClusterName]
+	if !ok {
+		log.Printf("Not exist:%v", basetool.ClusterName)
+		return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
+	}
+
+	// 读取等待时间
+	waitSecondsString, ok := cmdConfigs[basetool.WaitSeconds]
+	if !ok {
+		log.Printf("Not exist:%v, then using 10 second as default", basetool.WaitSeconds)
+		waitSecondsString = "10"
+	}
+
+	waitSeconds, err := strconv.Atoi(waitSecondsString)
+	if err != nil {
+		return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "wait seconds not int: " + waitSecondsString}
+	}
+
+	// 读取批量恢复索引时的方向
+	opDirectionString, ok := cmdConfigs[basetool.OpDirection]
+	if !ok {
+		log.Printf("Not exist:%v, then using Positive(0) as default", basetool.OpDirection)
+		opDirectionString = "0"
+	}
+
+	opDirection, err := strconv.Atoi(opDirectionString)
+	if err != nil {
+		return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "op direction not int: " + opDirectionString}
+	}
+
+	// 读取批量恢复索引时并发个数
+	opIndexNumString, ok := cmdConfigs[basetool.OpIndexNum]
+	if !ok {
+		log.Printf("Not exist:%v, then using 1 as default", basetool.OpIndexNum)
+		opIndexNumString = "1"
+	}
+
+	opIndexNum, err := strconv.Atoi(opIndexNumString)
+	if err != nil {
+		return basetool.Error{Code: basetool.ErrAtoiFailed, Message: "op index num not int: " + opIndexNumString}
+	}
+
+	if opIndexNum > basetool.MaxConcurrentIndexNum || opIndexNum < 1 {
+		return basetool.Error{Code: basetool.ErrInvalidNumber, Message: "Invalid Concurrent number " +
+			strconv.Itoa(opIndexNum) + " exceed " + strconv.Itoa(basetool.MaxConcurrentIndexNum) + " or < 0"}
+	}
+
+	err = basetool.SortStringArr(indicesName, opDirection)
+	if err != nil {
+		log.Printf("Failed to sort arr, err:%v", err)
+		return err
+	}
+
+	// for _, nohealthIndice := range nohealthIndices
+	for i := 0; i < len(indicesName); {
+		var batchIndicesName []string
+		var j = 0
+		for ; (i+j) < len(indicesName) && j < opIndexNum; j++ {
+			batchIndicesName = append(batchIndicesName, indicesName[i+j])
+		}
+		i += j
+
+		log.Printf("[Begin] to recover unhealthy index:%v of cluster:%v\n", batchIndicesName, clusterName)
+		err = compositeOp.SetBatchIndiceAllocationOnAndOff(clusterName, batchIndicesName, waitSeconds)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to recover unhealthy index:%v of cluster:%v\n", batchIndicesName, clusterName)
+	}
+
+	return nil
+}

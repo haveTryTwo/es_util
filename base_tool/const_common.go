@@ -32,6 +32,8 @@ const (
 	SettingsPath   = "SettingsPath"
 	WaitSeconds    = "WaitSeconds" // 等待时间，默认为10s
 	MappingPath    = "MappingPath"
+	OpDirection    = "OpDirection"
+	OpIndexNum     = "OpIndexNum"
 
 	GetClusterHealth              = "GetClusterHealth"
 	GetClusterSettings            = "GetClusterSettings"
@@ -52,4 +54,11 @@ const (
 	CloseIndices                  = "CloseIndices"
 	OpenIndices                   = "OpenIndices"
 	DeleteClosedIndices           = "DeleteClosedIndices"
+
+	// 并行恢复index时选择的方向
+	Positive      = 0
+	Reverse       = 1
+	BiDirectional = 2
+
+	MaxConcurrentIndexNum = 4 // 同一时刻最多并行4个index恢复
 )

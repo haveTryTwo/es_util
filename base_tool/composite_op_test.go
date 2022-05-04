@@ -5235,7 +5235,7 @@ func Test_SetIndiceAllocationOnAndOff_Normal_AllocationAll(t *testing.T) { // {{
 func Test_SetIndiceAllocationOnAndOff_Exception_EmptyIndexName(t *testing.T) { // {{{
 	expectErr := Error{ErrInvalidParam, "cluster name or index name or waitSeconds is nil"}
 	compositeOp := Create(nil)
-	err := compositeOp.SetIndiceAllocationOnAndOff("", "yy", 1)
+	err := compositeOp.SetIndiceAllocationOnAndOff("aa", "", 1)
 	if err == nil {
 		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
 	}
@@ -5361,6 +5361,1302 @@ func Test_SetIndiceAllocationOnAndOff_Exception_OtherErr(t *testing.T) { // {{{
 		compositeOp := Create(mockEsOp)
 		srcIndiceName := "just_tests_01"
 		err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
+		if err == nil {
+			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Normal_One_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndiceName := "just_tests_01"
+	srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+	srcGetIndiceResp := `green  open  just_tests_01       rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+	// GetIndexSetttingsOfKey
+	srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcGetIndexSettingsResp := `{
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+	// setIndexSettingsInternal
+	srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+	srcBeforeSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+	srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+
+	// GetIndice
+	srcGetIndiceYellowResp := `yellow  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+
+	srcGetIndiceGreenResp := `green  open  just_tests_01   rVogrm3IR42MBLsPKRl_JQ  1 1    0    0    522b    261b`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryNotInResp := `{
+  "just_tests_11": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceGreenResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	srcBeforeSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "all"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+	srcAfterSetSettingsToNoneGetResp := ` {
+  "just_tests_01" : {
+    "settings" : {
+      "index" : {
+        "routing" : {
+          "allocation" : {
+            "enable" : "none"
+          }
+        },
+        "number_of_shards" : "88"
+      }
+    }
+  }
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+	mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+
+	srcIndicesName := []string{srcIndiceName}
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndicesName, err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Normal_Two_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndicesName := []string{"just_tests_01", "just_tests_02"}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceResp := `green  open ` + srcIndiceName + `  rVogrm3IR42MBLsPKRl_JQ  1 1  0    0  522b    261b`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+		// GetIndexSetttingsOfKey
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcGetIndexSettingsResp := `{
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+		// setIndexSettingsInternal
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+	}
+
+	// GetIndice
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		break // Just one request
+	}
+
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_02" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryOneNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryOneNotInResp), nil)
+
+	srcGetRecoveryTwoNotInResp := `{
+  "just_tests_11": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryTwoNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "none"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+	}
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndicesName, err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Normal_Three_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndicesName := []string{"just_tests_01", "just_tests_02", "just_tests_03"}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceResp := `green  open ` + srcIndiceName + `  rVogrm3IR42MBLsPKRl_JQ  1 1  0    0  522b    261b`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+		// GetIndexSetttingsOfKey
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcGetIndexSettingsResp := `{
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+		// setIndexSettingsInternal
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+	}
+
+	// GetIndice
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		break // Just one request
+	}
+
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_02" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_03" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {},
+  "just_tests_03": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryOneNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryOneNotInResp), nil)
+
+	srcGetRecoveryTwoNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_02": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryTwoNotInResp), nil)
+
+	srcGetRecoveryThreeNotInResp := `{
+  "just_tests_11": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryThreeNotInResp), nil)
+
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "none"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+	}
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndicesName, err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Normal_Four_Set(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndicesName := []string{"just_tests_01", "just_tests_02", "just_tests_03", "just_tests_04"}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceResp := `green  open ` + srcIndiceName + `  rVogrm3IR42MBLsPKRl_JQ  1 1  0    0  522b    261b`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+		// GetIndexSetttingsOfKey
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcGetIndexSettingsResp := `{
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+		// setIndexSettingsInternal
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+	}
+
+	// GetIndice
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		break // Just one request
+	}
+
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_02" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_03" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_04" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {},
+  "just_tests_03": {},
+  "just_tests_04": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryOneNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {},
+  "just_tests_03": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryOneNotInResp), nil)
+
+	srcGetRecoveryTwoNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryTwoNotInResp), nil)
+
+	srcGetRecoveryThreeNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryThreeNotInResp), nil)
+
+	srcGetRecoveryFourNotInResp := `{
+  "just_tests_11": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryFourNotInResp), nil)
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "none"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+	}
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndicesName, err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Normal_Four_AllocationExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndicesName := []string{"just_tests_01", "just_tests_02", "just_tests_03", "just_tests_04"}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceResp := `green  open ` + srcIndiceName + `  rVogrm3IR42MBLsPKRl_JQ  1 1  0    0  522b    261b`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+		// GetIndexSetttingsOfKey
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcGetIndexSettingsResp := `{
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "none"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+
+		// setIndexSettingsInternal
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "none"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		allParam := "{\"index.routing.allocation.enable\":\"all\"}"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(allParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsGetResp), nil)
+	}
+
+	// GetIndice
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		break // Just one request
+	}
+
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_02" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_03" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_04" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {},
+  "just_tests_03": {},
+  "just_tests_04": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryOneNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {},
+  "just_tests_03": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryOneNotInResp), nil)
+
+	srcGetRecoveryTwoNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryTwoNotInResp), nil)
+
+	srcGetRecoveryThreeNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryThreeNotInResp), nil)
+
+	srcGetRecoveryFourNotInResp := `{
+  "just_tests_11": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryFourNotInResp), nil)
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "none"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+	}
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndicesName, err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Normal_Four_AllocationAll(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_One",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	// GetIndice
+	srcIndicesName := []string{"just_tests_01", "just_tests_02", "just_tests_03", "just_tests_04"}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceResp := `green  open ` + srcIndiceName + `  rVogrm3IR42MBLsPKRl_JQ  1 1  0    0  522b    261b`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceResp), nil)
+
+		// GetIndexSetttingsOfKey
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcGetIndexSettingsResp := `{
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcGetIndexSettingsResp), nil)
+	}
+
+	// GetIndice
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		break // Just one request
+	}
+
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_02" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_03" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		if srcIndiceName == "just_tests_04" {
+			srcGetIndiceYellowResp := `yellow  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+			break
+		} else {
+			srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+			mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+		}
+	}
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+
+	// GetRecoveryInfo
+	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
+	srcGetRecoveryInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {},
+  "just_tests_03": {},
+  "just_tests_04": {}
+}`
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryInResp), nil)
+
+	srcGetRecoveryOneNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {},
+  "just_tests_03": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryOneNotInResp), nil)
+
+	srcGetRecoveryTwoNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {},
+  "just_tests_02": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryTwoNotInResp), nil)
+
+	srcGetRecoveryThreeNotInResp := `{
+  "just_tests_11": {},
+  "just_tests_01": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryThreeNotInResp), nil)
+
+	srcGetRecoveryFourNotInResp := `{
+  "just_tests_11": {}
+}`
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndiceReq := "_cat/indices/" + srcIndiceName + "?pretty"
+		srcGetIndiceYellowResp := `green  open ` + srcIndiceName + ` rVogrm3IR42MBLsPKRl_JQ  1 1  0 0 522b  261b`
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndiceReq)).Return([]byte(srcGetIndiceYellowResp), nil)
+	}
+	mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryFourNotInResp), nil)
+	// setIndexSettingsInternal
+	noneParam := "{\"index.routing.allocation.enable\":\"none\"}"
+	for _, srcIndiceName := range srcIndicesName {
+		srcGetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcBeforeSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "all"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcAfterSetSettingsToNoneGetResp := ` {
+            "` + srcIndiceName + `" : {
+                "settings" : {
+                    "index" : {
+                        "routing" : {
+                            "allocation" : {
+                                "enable" : "none"
+                            }
+                        },
+                        "number_of_shards" : "88"
+                    }
+                }
+            }
+        }`
+		srcSetIndexSettingsReq := srcIndiceName + "/_settings?pretty"
+		srcSetSettingsPutResp := `{ "acknowledged" : true }`
+
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcBeforeSetSettingsToNoneGetResp), nil)
+		mockEsOp.EXPECT().Put(gomock.Eq(srcSetIndexSettingsReq), gomock.Eq(noneParam)).Return([]byte(srcSetSettingsPutResp), nil)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcGetIndexSettingsReq)).Return([]byte(srcAfterSetSettingsToNoneGetResp), nil)
+	}
+
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+	if err != nil {
+		t.Fatalf("Failed to set allocation on and off of %v, %v, err:%v", srcCheckClusterName, srcIndicesName, err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Exception_EmptyIndicesName(t *testing.T) { // {{{
+	expectErr := Error{ErrInvalidParam, "cluster name or indices name or waitSeconds is nil"}
+	compositeOp := Create(nil)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff("aa", []string{}, 1)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+	if err != expectErr {
+		t.Fatalf("err %v is not expect: %v", err, expectErr)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockEsOp := NewMockBaseEsOp(ctrl)
+	expectErr := Error{ErrNotFound, "Not found cluster"}
+
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+
+	srcIndicesName := []string{"just_tests_01"}
+	compositeOp := Create(mockEsOp)
+	err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+	if err == nil {
+		t.Fatalf("Expect to be failed:%v, but err is nil", expectErr)
+	}
+	code, _ := DecodeErr(err)
+	if code != expectErr.Code {
+		t.Fatalf("err code:%v is not %v", code, expectErr.Code)
+	}
+
+	t.Logf("Exception Test! err:%v", err)
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Exception_ResponseErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	// Cluster check
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	srcCheckClusterResps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "index_not_found_exception",
+        "reason" : "no such index",
+        "index_uuid" : "_na_",
+        "index" : "aaa"
+      }
+    ],
+    "type" : "index_not_found_exception",
+    "reason" : "no such index",
+    "index_uuid" : "_na_",
+    "index" : "aaa"
+  },
+  "status" : 404
+}`,
+	}
+
+	for i, _ := range srcCheckClusterResps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+		srcIndicesName := []string{"just_tests_01"}
+		err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Exception_OtherErr(t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcCheckClusterReq := "_cluster/health?pretty"
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
+
+		compositeOp := Create(mockEsOp)
+		srcIndicesName := []string{"just_tests_01"}
+		err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
 		if err == nil {
 			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
 		}

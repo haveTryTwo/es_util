@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -392,7 +393,7 @@ func (compositeOp *CompositeOp) GetRecoveryInfo() (map[string]interface{}, strin
 	return compositeOp.getInfoInternal("_recovery?active_only=true&pretty")
 } // }}}
 
-// First set allocation on so indice could be recovery
+// First set allocation on so indice could be recovered
 // Second set allocation off
 func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexName string,
 	waitSeconds int) error { // {{{
@@ -469,6 +470,106 @@ func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexNa
 	if err != nil {
 		log.Printf("Failed to create %v?pretty, err:%v\n", indexName, err.Error())
 		return err
+	}
+
+	return nil
+} // }}}
+
+// FirstsSet allocation on batch indices which will be recovered
+// Second set allocation off
+func (compositeOp *CompositeOp) SetBatchIndiceAllocationOnAndOff(clusterName string, indicesName []string,
+	waitSeconds int) error { // {{{
+	if clusterName == "" || indicesName == nil || len(indicesName) == 0 || waitSeconds <= 0 {
+		return Error{Code: ErrInvalidParam, Message: "cluster name or indices name or waitSeconds is nil"}
+	}
+	exist, err := compositeOp.CheckClusterName(clusterName)
+	if err != nil {
+		log.Printf("Failed to checkClusterName:%v\n", err.Error())
+		return err
+	}
+
+	if exist == false {
+		log.Printf("Not exist of cluste_name:%v\n", clusterName)
+		return Error{Code: ErrNotFound, Message: "Not found cluster_name:" + clusterName}
+	}
+
+	for _, indexName := range indicesName {
+		_, err := compositeOp.GetIndice(indexName)
+		if err != nil {
+			log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
+			return err
+		}
+
+		enableValue, err := compositeOp.GetIndexSettingsOfKey(indexName, "index.routing.allocation.enable")
+		if err != nil {
+			code, msg := DecodeErr(err)
+			if code != ErrNotFound {
+				log.Printf("Failed to get index:%v of index.routing.allocation.enable, err:%v, msg:%v", indexName, err, msg)
+				return err
+			} // NOTE: 未找到的 index.routing.allocation.enable 即没有设置，为正常状态
+		}
+
+		if enableValue != "all" {
+			params := "{\"index.routing.allocation.enable\":\"all\"}"
+			err = compositeOp.setIndexSettingsInternal(indexName, params)
+			if err != nil {
+				log.Printf("Failed to set index.routing.allocation.enable %v?pretty, err:%v\n", indexName, err.Error())
+				return err
+			}
+		}
+	}
+
+	for {
+		log.Printf("wait %v seconds to get indices info\n", waitSeconds)
+		time.Sleep(time.Duration(waitSeconds) * time.Second) // NOTE: 循环等一段时间，判断当前索引是否搬迁完毕
+
+		isContinue := false
+		for _, indexName := range indicesName {
+			indicesInfo, err := compositeOp.GetIndice(indexName)
+			if err != nil {
+				log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
+				return err
+			}
+
+			if indicesInfo[0].Health != Green {
+				log.Printf("Indices %v health:%v\n", indexName, indicesInfo[0].Health)
+				isContinue = true
+				break
+			}
+		}
+
+		if isContinue {
+			continue
+		}
+
+		recoveryMap, recoveryStr, err := compositeOp.GetRecoveryInfo()
+		if err != nil {
+			log.Printf("Failed to get recovery, err:%v\n", err)
+			return err
+		}
+
+		for _, indexName := range indicesName {
+			_, ok := recoveryMap[indexName]
+			if ok {
+				log.Printf("Found recovery of index:%v, recoveryString:%v, then wait\n", indexName, recoveryStr)
+				isContinue = true
+				break
+			}
+		}
+		if isContinue {
+			continue
+		}
+
+		break
+	}
+
+	params := "{\"index.routing.allocation.enable\":\"none\"}"
+	for _, indexName := range indicesName {
+		err = compositeOp.setIndexSettingsInternal(indexName, params)
+		if err != nil {
+			log.Printf("Failed to create %v?pretty, err:%v\n", indexName, err.Error())
+			return err
+		}
 	}
 
 	return nil
@@ -709,7 +810,9 @@ func (compositeOp *CompositeOp) DeleteClosedIndice(clusterName, indexName string
 // Get the difference of two string
 func Diff(prefixName string, before, after string) error { // {{{
 	logDir := "./log/" + time.Now().Format("20060102")
+	oldMask := syscall.Umask(0)
 	err := os.MkdirAll(logDir, os.ModePerm)
+	syscall.Umask(oldMask)
 	if err != nil {
 		log.Printf("%v", err)
 		return Error{Code: ErrMakeDirFailed, Message: err.Error()}
