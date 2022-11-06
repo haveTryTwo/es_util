@@ -39,18 +39,18 @@ const (
 	ErrNotClosed = -10700
 )
 
-// error including code and message
+// Error error including code and message
 type Error struct {
 	Code    int
 	Message string
 }
 
-// implemation Error interface
+// Error implemation Error interface
 func (e Error) Error() string {
 	return fmt.Sprintf("%v: %v", e.Code, e.Message)
 }
 
-// Decode internal Error
+// DecodeErr Decode internal Error
 func DecodeErr(err error) (int, string) {
 	if err == nil {
 		return Ok, "Sucess"
@@ -64,7 +64,7 @@ func DecodeErr(err error) (int, string) {
 	return ErrInternalServerFailed, err.Error()
 }
 
-// Implemation of Assert function
+// Assert Implemation of Assert function
 func Assert(flag bool, info interface{}) {
 	if flag == false {
 		panic(info)

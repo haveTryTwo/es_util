@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// operation using http
+// EsOpNoTls operation using http
 type EsOpNoTls struct {
 	IpPort string
 }

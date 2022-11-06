@@ -91,7 +91,7 @@ func ReadAllLinesInFile(filePath string) ([]string, error) { // {{{
 	return lines, nil
 } // }}}
 
-// 判断所给路径是否为文件夹
+// IsDir 判断所给路径是否为文件夹
 func IsDir(path string) (bool, error) { // {{{
 	s, err := os.Stat(path)
 	if err != nil {
@@ -100,7 +100,7 @@ func IsDir(path string) (bool, error) { // {{{
 	return s.IsDir(), nil
 } // }}}
 
-// Get content of whole file
+// ReadWholeFile Get content of whole file
 func ReadWholeFile(path string) ([]byte, error) { // {{{
 	file, err := os.Open(path)
 	if err != nil {
@@ -111,7 +111,7 @@ func ReadWholeFile(path string) ([]byte, error) { // {{{
 	return content, nil
 } // }}}
 
-// Get lines of content
+// GetLines Get lines of content
 func GetLines(content []byte) ([]string, error) { // {{{
 	if content == nil {
 		return nil, Error{Code: ErrInvalidParam, Message: "content is nil which should not be"}
@@ -129,7 +129,7 @@ func GetLines(content []byte) ([]string, error) { // {{{
 	return returnLines, nil
 } // }}}
 
-// Check whether key exist in arr
+// CheckExist Check whether key exist in arr
 func CheckExist(key string, arr []string) bool { // {{{
 	for _, v := range arr {
 		if key == v {

@@ -2,11 +2,11 @@
 package basetool
 
 import (
-	//	"fmt"
 	"sort"
 	"strconv"
 )
 
+// SortStringArr sort array according direction
 func SortStringArr(arr []string, direction int) error {
 	switch direction {
 	case Positive:

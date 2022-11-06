@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// operation using https
+// EsOpWithTls operation using https
 type EsOpWithTls struct {
 	IpPort         string
 	ClientCertFile string
