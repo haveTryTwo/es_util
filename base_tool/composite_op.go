@@ -372,13 +372,7 @@ func (compositeOp *CompositeOp) GetRecoveryInfo() (map[string]interface{}, strin
 	return compositeOp.getInfoInternal("_recovery?active_only=true&pretty")
 } // }}}
 
-// SetIndiceAllocationOnAndOff First set allocation on so indice could be recovered
-// Second set allocation off
-func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexName string,
-	waitSeconds int) error { // {{{
-	if clusterName == "" || indexName == "" || waitSeconds <= 0 {
-		return Error{Code: ErrInvalidParam, Message: "cluster name or index name or waitSeconds is nil"}
-	}
+func (compositeOp *CompositeOp) setBatchIndiceAllocationOn(clusterName string, indicesName []string) error { // {{{
 	exist, err := compositeOp.CheckClusterName(clusterName)
 	if err != nil {
 		log.Printf("Failed to checkClusterName:%v\n", err.Error())
@@ -390,35 +384,55 @@ func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexNa
 		return Error{Code: ErrNotFound, Message: "Not found cluster_name:" + clusterName}
 	}
 
-	indicesInfo, err := compositeOp.GetIndice(indexName)
-	if err != nil {
-		log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
-		return err
-	}
-
-	enableValue, err := compositeOp.GetIndexSettingsOfKey(indexName, "index.routing.allocation.enable")
-	if err != nil {
-		code, msg := DecodeErr(err)
-		if code != ErrNotFound {
-			log.Printf("Failed to get index:%v of index.routing.allocation.enable, err:%v, msg:%v", indexName, err, msg)
-			return err
-		} // NOTE: 未找到的 index.routing.allocation.enable 即没有设置，为正常状态
-	}
-
-	if enableValue != "all" {
-		params := "{\"index.routing.allocation.enable\":\"all\"}"
-		err = compositeOp.setIndexSettingsInternal(indexName, params)
+	for _, indexName := range indicesName {
+		_, err := compositeOp.GetIndice(indexName)
 		if err != nil {
-			log.Printf("Failed to set index.routing.allocation.enable %v?pretty, err:%v\n", indexName, err.Error())
+			log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
 			return err
 		}
+
+		enableValue, err := compositeOp.GetIndexSettingsOfKey(indexName, "index.routing.allocation.enable")
+		if err != nil {
+			code, msg := DecodeErr(err)
+			if code != ErrNotFound {
+				log.Printf("Failed to get index:%v of index.routing.allocation.enable, err:%v, msg:%v", indexName, err, msg)
+				return err
+			} // NOTE: 未找到的 index.routing.allocation.enable 即没有设置，为正常状态
+		}
+
+		if enableValue != "all" {
+			params := "{\"index.routing.allocation.enable\":\"all\"}"
+			err = compositeOp.setIndexSettingsInternal(indexName, params)
+			if err != nil {
+				log.Printf("Failed to set index.routing.allocation.enable %v?pretty, err:%v\n", indexName, err.Error())
+				return err
+			}
+		}
+	}
+
+	return nil
+} // }}}
+
+// SetIndiceAllocationOnAndOff First set allocation on so indice could be recovered
+// Second set allocation off
+func (compositeOp *CompositeOp) SetIndiceAllocationOnAndOff(clusterName, indexName string,
+	waitSeconds int) error { // {{{
+	if clusterName == "" || indexName == "" || waitSeconds <= 0 {
+		return Error{Code: ErrInvalidParam, Message: "cluster name or index name or waitSeconds is nil"}
+	}
+
+	indicesName := []string{indexName}
+	err := compositeOp.setBatchIndiceAllocationOn(clusterName, indicesName)
+	if err != nil {
+		log.Printf("Failed to set batch indices:%v\n", err.Error())
+		return err
 	}
 
 	for {
 		log.Printf("wait %v seconds to get indices info\n", waitSeconds)
 		time.Sleep(time.Duration(waitSeconds) * time.Second) // NOTE: 循环等一段时间，判断当前索引是否搬迁完毕
 
-		indicesInfo, err = compositeOp.GetIndice(indexName)
+		indicesInfo, err := compositeOp.GetIndice(indexName)
 		if err != nil {
 			log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
 			return err
@@ -461,41 +475,11 @@ func (compositeOp *CompositeOp) SetBatchIndiceAllocationOnAndOff(clusterName str
 	if clusterName == "" || indicesName == nil || len(indicesName) == 0 || waitSeconds <= 0 {
 		return Error{Code: ErrInvalidParam, Message: "cluster name or indices name or waitSeconds is nil"}
 	}
-	exist, err := compositeOp.CheckClusterName(clusterName)
+
+	err := compositeOp.setBatchIndiceAllocationOn(clusterName, indicesName)
 	if err != nil {
-		log.Printf("Failed to checkClusterName:%v\n", err.Error())
+		log.Printf("Failed to set batch indices:%v\n", err.Error())
 		return err
-	}
-
-	if exist == false {
-		log.Printf("Not exist of cluste_name:%v\n", clusterName)
-		return Error{Code: ErrNotFound, Message: "Not found cluster_name:" + clusterName}
-	}
-
-	for _, indexName := range indicesName {
-		_, err := compositeOp.GetIndice(indexName)
-		if err != nil {
-			log.Printf("Failed to get Indices %v?pretty, err:%v\n", indexName, err.Error())
-			return err
-		}
-
-		enableValue, err := compositeOp.GetIndexSettingsOfKey(indexName, "index.routing.allocation.enable")
-		if err != nil {
-			code, msg := DecodeErr(err)
-			if code != ErrNotFound {
-				log.Printf("Failed to get index:%v of index.routing.allocation.enable, err:%v, msg:%v", indexName, err, msg)
-				return err
-			} // NOTE: 未找到的 index.routing.allocation.enable 即没有设置，为正常状态
-		}
-
-		if enableValue != "all" {
-			params := "{\"index.routing.allocation.enable\":\"all\"}"
-			err = compositeOp.setIndexSettingsInternal(indexName, params)
-			if err != nil {
-				log.Printf("Failed to set index.routing.allocation.enable %v?pretty, err:%v\n", indexName, err.Error())
-				return err
-			}
-		}
 	}
 
 	for {
