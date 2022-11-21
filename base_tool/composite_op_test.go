@@ -6282,7 +6282,7 @@ func Test_SetBatchIndiceAllocationOnAndOff_Exception_EmptyIndicesName(t *testing
 	t.Logf("Exception Test! err:%v", err)
 } // }}}
 
-func Test_SetBatchIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.T) { // {{{
+func testClusterNameNotFound(resp string, t *testing.T) {// {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -6292,13 +6292,8 @@ func Test_SetBatchIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.
 	// Cluster check
 	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	srcCheckClusterResp := `{
-  "cluster_name" : "HaveTryTwo_First_Two",
-  "status" : "green",
-  "number_of_nodes" : 6
-}`
 
-	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResp), nil)
+	mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(resp), nil)
 
 	srcIndicesName := []string{"just_tests_01"}
 	compositeOp := Create(mockEsOp)
@@ -6312,6 +6307,24 @@ func Test_SetBatchIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.
 	}
 
 	t.Logf("Exception Test! err:%v", err)
+}// }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.T) { // {{{
+	srcCheckClusterResp := `{
+  "cluster_name" : "HaveTryTwo_First_Two",
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+
+    testClusterNameNotFound(srcCheckClusterResp, t)
+} // }}}
+
+func Test_SetBatchIndiceAllocationOnAndOff_Exception_NoClusterName(t *testing.T) { // {{{
+	srcCheckClusterResp := `{
+  "status" : "green",
+  "number_of_nodes" : 6
+}`
+    testClusterNameNotFound(srcCheckClusterResp, t)
 } // }}}
 
 func Test_SetBatchIndiceAllocationOnAndOff_Exception_ResponseErr(t *testing.T) { // {{{
