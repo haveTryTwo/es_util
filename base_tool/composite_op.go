@@ -169,7 +169,7 @@ func (compositeOp *CompositeOp) GetSpecialHealthIndices(health string) ([]Indice
 	return specialIndicesInfo, nil
 } // }}}
 
-// GetSpecialStatusIndicesGet indices of special status
+// GetSpecialStatusIndices Get indices of special status
 func (compositeOp *CompositeOp) GetSpecialStatusIndices(status string) ([]IndiceInfo, error) { // {{{
 	indicesInfo, err := compositeOp.GetIndices()
 	if err != nil {

@@ -18,10 +18,258 @@ import (
 	"time"
 )
 
-func Test_GetInfoInternal_Normal_Get(t *testing.T) { // {{{
+const (
+	GetInfoInternalType = iota
+	GetClusterHealthType
+	CheckClusterNameType
+	GetIndicesType
+	GetSpecailStatusIndicesType
+	GetClusterSettingsType
+	GetClusterSettingsOfKeyType
+	GetIndexSettingsType
+	GetIndexSettingsOfKeyType
+	GetIndexMappingType
+	GetRecoveryInfoType
+	SetIndiceAllocationOnAndOffType
+	SetBatchIndiceAllocationOnAndOffType
+	CreateIndiceType
+	SetIndiceSettingsType
+	SetIndiceMappingType
+	PostIndexInternalType
+	DeleteIndexInternalType
+)
+
+func testNormalGet(req string, resps []string, testType int, t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	for _, resp := range resps {
+		var respMap map[string]interface{}
+		err := json.Unmarshal([]byte(resp), &respMap)
+		if err != nil {
+			t.Fatalf("Failed to json unmarshall:%v err:%v", resp, err)
+		}
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(req)).Return([]byte(resp), nil)
+
+		compositeOp := Create(mockEsOp)
+		var respByte string
+		switch testType {
+		case GetInfoInternalType:
+			respMap, respByte, err = compositeOp.getInfoInternal(req)
+		case GetClusterHealthType:
+			respMap, respByte, err = compositeOp.GetClusterHealth()
+		case GetClusterSettingsType:
+			respMap, respByte, err = compositeOp.GetClusterSettings()
+		default:
+			t.Fatalf("Invalid test type %v", testType)
+		}
+
+		if err != nil {
+			t.Fatalf("Failed to check %v, err:%v", req, err)
+		}
+
+		if respByte != resp {
+			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, resp)
+		}
+
+		if len(respMap) != len(respMap) {
+			t.Fatalf("Num:%v of RespMap not equal to mock resp:%v", len(respMap), len(respMap))
+		}
+
+		for key, value := range respMap {
+			srcValue, ok := respMap[key]
+			if !ok {
+				t.Fatalf("Key:%v not in respMap:%v", key, respMap)
+			}
+
+			cmpDiff := cmp.Diff(value, srcValue)
+			if cmpDiff != "" {
+				t.Fatalf("Value:%v not equal to src:%v, diff:%v", value, srcValue, cmpDiff)
+			}
+		}
+	}
+} // }}}
+
+func testResponseErr(url string, testType int, t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
+		{ErrRespErr, "Resp error: "},
+		{ErrRespErr, "Resp error: "},
+	}
+	req := url
+	resps := []string{`{
+        "xxxyyyyjjmm"
+}`, `{
+      "error" : "Incorrect HTTP method for uri [` + url + `] and method [GET], allowed: [POST]",
+      "status" : 405
+}`, `{
+  "error" : {
+    "root_cause" : [
+      {
+        "type" : "index_not_found_exception",
+        "reason" : "no such index",
+        "index_uuid" : "_na_",
+        "index" : "aaa"
+      }
+    ],
+    "type" : "index_not_found_exception",
+    "reason" : "no such index",
+    "index_uuid" : "_na_",
+    "index" : "aaa"
+  },
+  "status" : 404
+}`,
+	}
+
+	for i, _ := range resps {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		mockEsOp.EXPECT().Get(gomock.Eq(req)).Return([]byte(resps[i]), nil)
+
+		compositeOp := Create(mockEsOp)
+
+		var err error
+		srcIndexName := "just_tests_18"
+		srcCheckClusterName := "HaveTryTwo_First_One"
+		switch testType {
+		case GetInfoInternalType:
+			_, _, err = compositeOp.getInfoInternal(req)
+		case GetClusterHealthType:
+			_, _, err = compositeOp.GetClusterHealth()
+		case CheckClusterNameType:
+			_, err = compositeOp.CheckClusterName("aabb")
+		case GetClusterSettingsType:
+			_, _, err = compositeOp.GetClusterSettings()
+		case GetClusterSettingsOfKeyType:
+			srcKey := "transient.cluster.routing.allocation.enable"
+			_, err = compositeOp.GetClusterSettingsOfKey(srcKey)
+		case GetIndexSettingsType:
+			_, _, err = compositeOp.GetIndexSettings(srcIndexName)
+		case GetIndexSettingsOfKeyType:
+			srcKey := "index.routing.allocation.enable"
+			_, err = compositeOp.GetIndexSettingsOfKey(srcIndexName, srcKey)
+		case GetIndexMappingType:
+			_, _, err = compositeOp.GetIndexMapping(srcIndexName)
+		case GetRecoveryInfoType:
+			_, _, err = compositeOp.GetRecoveryInfo()
+		case SetIndiceAllocationOnAndOffType:
+			err = compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndexName, 1)
+		case SetBatchIndiceAllocationOnAndOffType:
+			srcIndicesName := []string{"just_tests_01"}
+			err = compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+		case CreateIndiceType:
+			err = compositeOp.CreateIndice(srcCheckClusterName, srcIndexName, 1)
+		case SetIndiceSettingsType:
+			settingParam := `{"index.routing.allocation.enable": "none"}`
+			err = compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndexName, settingParam)
+		case SetIndiceMappingType:
+			mappingParam := `{"properties":{"age":{"type":"integer"} } }`
+			err = compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndexName, mappingParam)
+		default:
+			t.Fatalf("Invalid test type %v", testType)
+		}
+
+		if err == nil {
+			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
+		}
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func testOtherErr(req string, param string, testType int, t *testing.T) { // {{{
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	errors := []Error{
+		{ErrInvalidParam, "Invalid op: xxxx"},
+		{ErrNewRequestFailed, "Failed to create new request!!"},
+		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
+			"dial tcp localhost:39908: connect: connection refused"},
+		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
+		{ErrTlsLoadX509Failed, "tls load failed"},
+	}
+
+	for i, _ := range errors {
+		mockEsOp := NewMockBaseEsOp(ctrl)
+		if param == "" {
+			mockEsOp.EXPECT().Get(gomock.Eq(req)).Return(nil, errors[i])
+		} else {
+			mockEsOp.EXPECT().Post(gomock.Eq(req), gomock.Eq(param)).Return(nil, errors[i])
+		}
+
+		compositeOp := Create(mockEsOp)
+		var err error
+		srcCheckClusterName := "HaveTryTwo_First_One"
+		srcIndexName := "just_tests_18"
+		switch testType {
+		case GetInfoInternalType:
+			_, _, err = compositeOp.getInfoInternal(req)
+		case GetClusterHealthType:
+			_, _, err = compositeOp.GetClusterHealth()
+		case CheckClusterNameType:
+			_, err = compositeOp.CheckClusterName("aabb")
+		case GetIndicesType:
+			_, err = compositeOp.GetIndices()
+		case GetSpecailStatusIndicesType:
+			_, err = compositeOp.GetSpecialStatusIndices(Open)
+		case GetClusterSettingsType:
+			_, _, err = compositeOp.GetClusterSettings()
+		case GetClusterSettingsOfKeyType:
+			srcKey := "transient.cluster.routing.allocation.enable"
+			_, err = compositeOp.GetClusterSettingsOfKey(srcKey)
+		case GetIndexSettingsType:
+			_, _, err = compositeOp.GetIndexSettings(srcIndexName)
+		case GetIndexSettingsOfKeyType:
+			srcKey := "index.routing.allocation.enable"
+			_, err = compositeOp.GetIndexSettingsOfKey(srcIndexName, srcKey)
+		case GetIndexMappingType:
+			_, _, err = compositeOp.GetIndexMapping(srcIndexName)
+		case GetRecoveryInfoType:
+			_, _, err = compositeOp.GetRecoveryInfo()
+		case SetIndiceAllocationOnAndOffType:
+			err = compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndexName, 1)
+		case SetBatchIndiceAllocationOnAndOffType:
+			srcIndicesName := []string{"just_tests_01"}
+			err = compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
+		case CreateIndiceType:
+			err = compositeOp.CreateIndice(srcCheckClusterName, srcIndexName, 1)
+		case SetIndiceSettingsType:
+			settingParam := `{"index.routing.allocation.enable": "none"}`
+			err = compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndexName, settingParam)
+		case SetIndiceMappingType:
+			mappingParam := `{"properties":{"age":{"type":"integer"} } }`
+			err = compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndexName, mappingParam)
+		case PostIndexInternalType:
+			_, err = compositeOp.postIndexInternal(srcIndexName, "/_open?pretty", "{}")
+		default:
+			t.Fatalf("Invalid test type %v", testType)
+		}
+		if err == nil {
+			t.Fatalf("Expect getInfoInternal %v excute failed, but err is nil", req)
+		}
+
+		code, _ := DecodeErr(err)
+		if code != errors[i].Code {
+			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
+		}
+
+		if err != errors[i] {
+			t.Fatalf("err %v is not equal to %v", err, errors[i])
+		}
+
+		t.Logf("Exception Test! err:%v", err)
+	}
+} // }}}
+
+func Test_GetInfoInternal_Normal_Get(t *testing.T) { // {{{
 	srcClusterReq := "_cluster/health?pretty"
 	srcClusterResps := []string{`{
   "cluster_name" : "HaveTryTwo_First_One",
@@ -44,131 +292,17 @@ func Test_GetInfoInternal_Normal_Get(t *testing.T) { // {{{
 		"{}",
 	}
 
-	for _, srcClusterResp := range srcClusterResps {
-		var srcClusterRespMap map[string]interface{}
-		err := json.Unmarshal([]byte(srcClusterResp), &srcClusterRespMap)
-		if err != nil {
-			t.Fatalf("Failed to json unmarshall:%v err:%v", srcClusterResp, err)
-		}
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
-
-		compositeOp := Create(mockEsOp)
-		respMap, respByte, err := compositeOp.getInfoInternal(srcClusterReq)
-		if err != nil {
-			t.Fatalf("Failed to check %v, err:%v", srcClusterReq, err)
-		}
-
-		if respByte != srcClusterResp {
-			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcClusterResp)
-		}
-
-		if len(respMap) != len(srcClusterRespMap) {
-			t.Fatalf("Num:%v of RespMap not equal to mock resp:%v", len(respMap), len(srcClusterRespMap))
-		}
-
-		for key, value := range respMap {
-			srcValue, ok := srcClusterRespMap[key]
-			if !ok {
-				t.Fatalf("Key:%v not in srcClusterRespMap:%v", key, srcClusterRespMap)
-			}
-
-			cmpDiff := cmp.Diff(value, srcValue)
-			if cmpDiff != "" {
-				t.Fatalf("Value:%v not equal to src:%v, diff:%v", value, srcValue, cmpDiff)
-			}
-		}
-	}
+	testNormalGet(srcClusterReq, srcClusterResps, GetInfoInternalType, t)
 } // }}}
 
 func Test_GetInfoInternal_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	srcClusterReq := "_cluster/settings?pretty"
-	srcClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.getInfoInternal(srcClusterReq)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		//			if err != errors[i] {
-		//				t.Fatalf("err %v is not expect: %v", err, errors[i])
-		//			}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	srcClusterReq := "_cluster/health?pretty"
+	testResponseErr(srcClusterReq, GetInfoInternalType, t)
 } // }}}
 
 func Test_GetInfoInternal_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.getInfoInternal(srcClusterReq)
-		if err == nil {
-			t.Fatalf("Expect getInfoInternal %v excute failed, but err is nil", srcClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcClusterReq, "", GetInfoInternalType, t)
 } // }}}
 
 func Test_GetInfoInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
@@ -191,9 +325,6 @@ func Test_GetInfoInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetClusterHealth_Normal_Get(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcClusterReq := "_cluster/health?pretty"
 	srcClusterResps := []string{`{
   "cluster_name" : "HaveTryTwo_First_One",
@@ -216,132 +347,17 @@ func Test_GetClusterHealth_Normal_Get(t *testing.T) { // {{{
 		"{}",
 	}
 
-	for _, srcClusterResp := range srcClusterResps {
-		var srcClusterRespMap map[string]interface{}
-		err := json.Unmarshal([]byte(srcClusterResp), &srcClusterRespMap)
-		if err != nil {
-			t.Fatalf("Failed to json unmarshall:%v err:%v", srcClusterResp, err)
-		}
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
-
-		compositeOp := Create(mockEsOp)
-		respMap, respByte, err := compositeOp.GetClusterHealth()
-		if err != nil {
-			t.Fatalf("Failed to check %v, err:%v", srcClusterReq, err)
-		}
-
-		if respByte != srcClusterResp {
-			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcClusterResp)
-		}
-
-		if len(respMap) != len(srcClusterRespMap) {
-			t.Fatalf("Num:%v of RespMap not equal to mock resp:%v", len(respMap), len(srcClusterRespMap))
-		}
-
-		for key, value := range respMap {
-			srcValue, ok := srcClusterRespMap[key]
-			if !ok {
-				t.Fatalf("Key:%v not in srcClusterRespMap:%v", key, srcClusterRespMap)
-			}
-
-			cmpDiff := cmp.Diff(value, srcValue)
-			if cmpDiff != "" {
-				t.Fatalf("Value:%v not equal to src:%v, diff:%v", value, srcValue, cmpDiff)
-			}
-		}
-	}
-	// t.Logf("respByte:%v, respMap:%v", respByte, respMap)
+	testNormalGet(srcClusterReq, srcClusterResps, GetClusterHealthType, t)
 } // }}}
 
 func Test_GetClusterHealth_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
 	srcClusterReq := "_cluster/health?pretty"
-	srcClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetClusterHealth()
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		//			if err != errors[i] {
-		//				t.Fatalf("err %v is not expect: %v", err, errors[i])
-		//			}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcClusterReq, GetClusterHealthType, t)
 } // }}}
 
 func Test_GetClusterHealth_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetClusterHealth()
-		if err == nil {
-			t.Fatalf("Expect GetClusterHealth %v excute failed, but err is nil", srcClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcClusterReq, "", GetClusterHealthType, t)
 } // }}}
 
 func Test_CheckClusterName_Normal_Equal(t *testing.T) { // {{{
@@ -457,93 +473,13 @@ func Test_CheckClusterName_Normal_NotEqual(t *testing.T) { // {{{
 } // }}}
 
 func Test_CheckClusterName_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.CheckClusterName("aabb")
-		if err == nil {
-			t.Fatalf("Expect CheckClusterName %v excute failed, but err is nil", srcClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcClusterReq, "", CheckClusterNameType, t)
 } // }}}
 
 func Test_CheckClusterName_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
 	srcClusterReq := "_cluster/health?pretty"
-	srcClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.CheckClusterName("aabb")
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		//			if err != errors[i] {
-		//				t.Fatalf("err %v is not expect: %v", err, errors[i])
-		//			}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcClusterReq, CheckClusterNameType, t)
 } // }}}
 
 func Test_CheckClusterName_Exception_ClusterNameKey_NotFound(t *testing.T) { // {{{
@@ -1385,36 +1321,8 @@ func Test_GetIndices_Exception_JsonResp(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetIndices_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcIndicesReq := "_cat/indices?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.GetIndices()
-		if err == nil {
-			t.Fatalf("Expect GetIndices excute failed, but err is nil")
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcIndicesReq, "", GetIndicesType, t)
 } // }}}
 
 func Test_GetSpecialHealthIndices_Normal_Get(t *testing.T) { // {{{
@@ -1748,42 +1656,11 @@ func Test_GetSpecialStatusIndices_Exception_JsonResp(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetSpecialStatusIndices_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcIndicesReq := "_cat/indices?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcIndicesReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.GetSpecialStatusIndices(Open)
-		if err == nil {
-			t.Fatalf("Expect GetSpecailStatusIndices excute failed, but err is nil")
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcIndicesReq, "", GetSpecailStatusIndicesType, t)
 } // }}}
 
 func Test_GetClusterSettings_Normal_Get(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcClusterReq := "_cluster/settings?pretty"
 	srcClusterResps := []string{`{
   "persistent" : {
@@ -1818,131 +1695,17 @@ func Test_GetClusterSettings_Normal_Get(t *testing.T) { // {{{
 		"{}",
 	}
 
-	for _, srcClusterResp := range srcClusterResps {
-		var srcClusterRespMap map[string]interface{}
-		err := json.Unmarshal([]byte(srcClusterResp), &srcClusterRespMap)
-		if err != nil {
-			t.Fatalf("Failed to json unmarshall:%v err:%v", srcClusterResp, err)
-		}
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResp), nil)
-
-		compositeOp := Create(mockEsOp)
-		respMap, respByte, err := compositeOp.GetClusterSettings()
-		if err != nil {
-			t.Fatalf("Failed to check %v, err:%v", srcClusterReq, err)
-		}
-
-		if respByte != srcClusterResp {
-			t.Fatalf("RespByte:%v not equal to mock resp:%v", respByte, srcClusterResp)
-		}
-
-		if len(respMap) != len(srcClusterRespMap) {
-			t.Fatalf("Num:%v of RespMap not equal to mock resp:%v", len(respMap), len(srcClusterRespMap))
-		}
-
-		for key, value := range respMap {
-			srcValue, ok := srcClusterRespMap[key]
-			if !ok {
-				t.Fatalf("Key:%v not in srcClusterRespMap:%v", key, srcClusterRespMap)
-			}
-
-			cmpDiff := cmp.Diff(value, srcValue)
-			if cmpDiff != "" {
-				t.Fatalf("Value:%v not equal to src:%v, diff:%v", value, srcValue, cmpDiff)
-			}
-		}
-	}
+	testNormalGet(srcClusterReq, srcClusterResps, GetClusterSettingsType, t)
 } // }}}
 
 func Test_GetClusterSettings_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
 	srcClusterReq := "_cluster/settings?pretty"
-	srcClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetClusterSettings()
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		//			if err != errors[i] {
-		//				t.Fatalf("err %v is not expect: %v", err, errors[i])
-		//			}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcClusterReq, GetClusterSettingsType, t)
 } // }}}
 
 func Test_GetClusterSettings_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcClusterReq := "_cluster/settings?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetClusterSettings()
-		if err == nil {
-			t.Fatalf("Expect GetClusterSettings %v excute failed, but err is nil", srcClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcClusterReq, "", GetClusterSettingsType, t)
 } // }}}
 
 func Test_GetValueOfKeyPath_Normal_Get(t *testing.T) { // {{{
@@ -2279,61 +2042,8 @@ func Test_GetClusterSettingsOfKey_Normal_Get(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetClusterSettingsOfKey_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcKey := "transient.cluster.routing.allocation.enable"
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
 	srcClusterReq := "_cluster/settings?pretty"
-	srcClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.GetClusterSettingsOfKey(srcKey)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		//			if err != errors[i] {
-		//				t.Fatalf("err %v is not expect: %v", err, errors[i])
-		//			}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcClusterReq, GetClusterSettingsOfKeyType, t)
 } // }}}
 
 func Test_GetClusterSettingsOfKey_Exception_ErrFound(t *testing.T) { // {{{
@@ -2467,41 +2177,8 @@ func Test_GetClusterSettingsOfKey_Exception_EmptyKey(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetClusterSettingsOfKey_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcKey := "transient.cluster.routing.allocation.enable"
 	srcClusterReq := "_cluster/settings?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.GetClusterSettingsOfKey(srcKey)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not equal to %v", code, errors[i].Code)
-		}
-
-		if err != errors[i] {
-			t.Fatalf("err %v is not equal to %v", err, errors[i])
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcClusterReq, "", GetClusterSettingsOfKeyType, t)
 } // }}}
 
 func Test_GetIndexSettings_Normal_Get(t *testing.T) { // {{{
@@ -2586,91 +2263,13 @@ func Test_GetIndexSettings_Normal_Get(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetIndexSettings_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	srcIndexName := "just_tests_18"
 	srcIndexReq := "just_tests_18/_settings?pretty"
-	srcIndexResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/just_test_18/ssettingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "just_test_18"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "just_test_18"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcIndexResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReq)).Return([]byte(srcIndexResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetIndexSettings(srcIndexName)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcIndexReq, GetIndexSettingsType, t)
 } // }}}
 
 func Test_GetIndexSettings_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcIndexName := "just_tests_18"
 	srcIndexReq := "just_tests_18/_settings?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetIndexSettings(srcIndexName)
-		if err == nil {
-			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcIndexReq, "", GetIndexSettingsType, t)
 } // }}}
 
 func Test_GetIndexSettings_Exception_EmptyIndexName(t *testing.T) { // {{{
@@ -2791,58 +2390,8 @@ func Test_GetIndexSettingsOfKey_Normal_Get(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetIndexSettingsOfKey_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcKey := "index.routing.allocation.enable"
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	srcIndexName := "just_tests_18"
 	srcClusterReq := "just_tests_18/_settings?pretty"
-	srcClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/just_tests_18/_settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcClusterReq)).Return([]byte(srcClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.GetIndexSettingsOfKey(srcIndexName, srcKey)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcClusterReq, GetIndexSettingsOfKeyType, t)
 } // }}}
 
 func Test_GetIndexSettingsOfKey_Exception_ErrFound(t *testing.T) { // {{{
@@ -2926,43 +2475,8 @@ func Test_GetIndexSettingsOfKey_Exception_EmptyKey(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetIndexSettingsOfKey_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcKey := "index.routing.allocation.enable"
-
-	srcIndexName := "just_tests_8"
-	srcIndexReq := "just_tests_8/_settings?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.GetIndexSettingsOfKey(srcIndexName, srcKey)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not equal to %v", code, errors[i].Code)
-		}
-
-		if err != errors[i] {
-			t.Fatalf("err %v is not equal to %v", err, errors[i])
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	srcIndexReq := "just_tests_18/_settings?pretty"
+	testOtherErr(srcIndexReq, "", GetIndexSettingsOfKeyType, t)
 } // }}}
 
 func Test_GetIndexMapping_Normal_Get(t *testing.T) { // {{{
@@ -3054,91 +2568,13 @@ func Test_GetIndexMapping_Normal_Get(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetIndexMapping_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	srcIndexName := "just_tests_18"
 	srcIndexReq := "just_tests_18/_mapping?pretty"
-	srcIndexResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/just_test_18/smapping?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "just_test_18"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "just_test_18"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcIndexResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReq)).Return([]byte(srcIndexResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetIndexMapping(srcIndexName)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcIndexReq, GetIndexMappingType, t)
 } // }}}
 
 func Test_GetIndexMapping_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcIndexName := "just_tests_18"
 	srcIndexReq := "just_tests_18/_mapping?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcIndexReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetIndexMapping(srcIndexName)
-		if err == nil {
-			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcIndexReq, "", GetIndexMappingType, t)
 } // }}}
 
 func Test_GetIndexMapping_Exception_EmptyIndexName(t *testing.T) { // {{{
@@ -4765,89 +4201,13 @@ func Test_GetRecoveryInfo_Normal_Get(t *testing.T) { // {{{
 } // }}}
 
 func Test_GetRecoveryInfo_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
 	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
-	srcGetRecoveryResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcGetRecoveryResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return([]byte(srcGetRecoveryResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetRecoveryInfo()
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcGetRecoveryReq, GetRecoveryInfoType, t)
 } // }}}
 
 func Test_GetRecoveryInfo_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	srcGetRecoveryReq := "_recovery?active_only=true&pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcGetRecoveryReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, _, err := compositeOp.GetRecoveryInfo()
-		if err == nil {
-			t.Fatalf("Expect getInfoInternal %v excute failed, but err is nil", srcGetRecoveryReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcGetRecoveryReq, "", GetRecoveryInfoType, t)
 } // }}}
 
 func Test_SetIndiceAllocationOnAndOff_Normal_Set(t *testing.T) { // {{{
@@ -5284,94 +4644,13 @@ func Test_SetIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.T) { 
 } // }}}
 
 func Test_SetIndiceAllocationOnAndOff_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	// Cluster check
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	srcCheckClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcCheckClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcCheckClusterReq, SetIndiceAllocationOnAndOffType, t)
 } // }}}
 
 func Test_SetIndiceAllocationOnAndOff_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		err := compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndiceName, 1)
-		if err == nil {
-			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcCheckClusterReq, "", SetIndiceAllocationOnAndOffType, t)
 } // }}}
 
 func Test_SetBatchIndiceAllocationOnAndOff_Normal_One_Set(t *testing.T) { // {{{
@@ -6282,7 +5561,7 @@ func Test_SetBatchIndiceAllocationOnAndOff_Exception_EmptyIndicesName(t *testing
 	t.Logf("Exception Test! err:%v", err)
 } // }}}
 
-func testClusterNameNotFound(resp string, t *testing.T) {// {{{
+func testClusterNameNotFound(resp string, t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -6307,7 +5586,7 @@ func testClusterNameNotFound(resp string, t *testing.T) {// {{{
 	}
 
 	t.Logf("Exception Test! err:%v", err)
-}// }}}
+} // }}}
 
 func Test_SetBatchIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.T) { // {{{
 	srcCheckClusterResp := `{
@@ -6316,7 +5595,7 @@ func Test_SetBatchIndiceAllocationOnAndOff_Exception_ClusetrNotExist(t *testing.
   "number_of_nodes" : 6
 }`
 
-    testClusterNameNotFound(srcCheckClusterResp, t)
+	testClusterNameNotFound(srcCheckClusterResp, t)
 } // }}}
 
 func Test_SetBatchIndiceAllocationOnAndOff_Exception_NoClusterName(t *testing.T) { // {{{
@@ -6324,98 +5603,17 @@ func Test_SetBatchIndiceAllocationOnAndOff_Exception_NoClusterName(t *testing.T)
   "status" : "green",
   "number_of_nodes" : 6
 }`
-    testClusterNameNotFound(srcCheckClusterResp, t)
+	testClusterNameNotFound(srcCheckClusterResp, t)
 } // }}}
 
 func Test_SetBatchIndiceAllocationOnAndOff_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	// Cluster check
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	srcCheckClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcCheckClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		srcIndicesName := []string{"just_tests_01"}
-		err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcCheckClusterReq, SetBatchIndiceAllocationOnAndOffType, t)
 } // }}}
 
 func Test_SetBatchIndiceAllocationOnAndOff_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		srcIndicesName := []string{"just_tests_01"}
-		err := compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
-		if err == nil {
-			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcCheckClusterReq, "", SetBatchIndiceAllocationOnAndOffType, t)
 } // }}}
 
 func Test_CreateIndice_Normal_Set(t *testing.T) { // {{{
@@ -6882,94 +6080,13 @@ func Test_CreateIndice_Exception_ClusetrNotExist(t *testing.T) { // {{{
 } // }}}
 
 func Test_CreateIndice_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	// Cluster check
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	srcCheckClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcCheckClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcCheckClusterReq, CreateIndiceType, t)
 } // }}}
 
 func Test_CreateIndice_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		err := compositeOp.CreateIndice(srcCheckClusterName, srcIndiceName, 1)
-		if err == nil {
-			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcCheckClusterReq, "", CreateIndiceType, t)
 } // }}}
 
 func Test_SetIndiceSettings_Normal_Set(t *testing.T) { // {{{
@@ -7211,96 +6328,13 @@ func Test_SetIndiceSettings_Exception_EmptyIndexName(t *testing.T) { // {{{
 } // }}}
 
 func Test_SetIndiceSettings_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	// Cluster check
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	srcCheckClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcCheckClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		settingParam := `{"index.routing.allocation.enable": "none"}`
-		err := compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndiceName, settingParam)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcCheckClusterReq, SetIndiceSettingsType, t)
 } // }}}
 
 func Test_SetIndiceSettings_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		settingParam := `{"index.routing.allocation.enable": "none"}`
-		err := compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndiceName, settingParam)
-		if err == nil {
-			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcCheckClusterReq, "", SetIndiceSettingsType, t)
 } // }}}
 
 func Test_SetIndiceMapping_Normal_Set(t *testing.T) { // {{{
@@ -7580,96 +6614,13 @@ func Test_SetIndiceMapping_Exception_EmptyIndexName(t *testing.T) { // {{{
 } // }}}
 
 func Test_SetIndiceMapping_Exception_ResponseErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	errors := []Error{
-		{ErrJsonUnmarshalFailed, "ReadMapCB: expect :"},
-		{ErrRespErr, "Resp error: "},
-		{ErrRespErr, "Resp error: "},
-	}
-	// Cluster check
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	srcCheckClusterResps := []string{`{
-        "xxxyyyyjjmm"
-}`, `{
-      "error" : "Incorrect HTTP method for uri [/_cluster/settingss?pretty] and method [GET], allowed: [POST]",
-      "status" : 405
-}`, `{
-  "error" : {
-    "root_cause" : [
-      {
-        "type" : "index_not_found_exception",
-        "reason" : "no such index",
-        "index_uuid" : "_na_",
-        "index" : "aaa"
-      }
-    ],
-    "type" : "index_not_found_exception",
-    "reason" : "no such index",
-    "index_uuid" : "_na_",
-    "index" : "aaa"
-  },
-  "status" : 404
-}`,
-	}
-
-	for i, _ := range srcCheckClusterResps {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return([]byte(srcCheckClusterResps[i]), nil)
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		mappingParam := `{"properties":{"age":{"type":"integer"} } }`
-		err := compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndiceName, mappingParam)
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testResponseErr(srcCheckClusterReq, SetIndiceSettingsType, t)
 } // }}}
 
 func Test_SetIndiceMapping_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Get(gomock.Eq(srcCheckClusterReq)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		srcIndiceName := "just_tests_01"
-		mappingParam := `{"properties":{"age":{"type":"integer"} } }`
-		err := compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndiceName, mappingParam)
-		if err == nil {
-			t.Fatalf("Expect %v excute failed, but err is nil", srcCheckClusterReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	testOtherErr(srcCheckClusterReq, "", SetIndiceMappingType, t)
 } // }}}
 
 func Test_PostIndexInternal_Normal_Set(t *testing.T) { // {{{
@@ -7793,39 +6744,8 @@ func Test_PostIndexInternal_Exception_ResponseErr(t *testing.T) { // {{{
 } // }}}
 
 func Test_PostIndexInternal_Exception_OtherErr(t *testing.T) { // {{{
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	srcIndexName := "just_tests_18"
-	uri := "/_open?pretty"
-	srcIndexReq := srcIndexName + uri
-	param := "{}"
-	errors := []Error{
-		{ErrInvalidParam, "Invalid op: xxxx"},
-		{ErrNewRequestFailed, "Failed to create new request!!"},
-		{ErrHttpDoFailed, "Get \"http://localhost:39908/_cat/indices?pretty\": " +
-			"dial tcp localhost:39908: connect: connection refused"},
-		{ErrIoUtilReadAllFailed, "Read content from resp.body failed"},
-		{ErrTlsLoadX509Failed, "tls load failed"},
-	}
-
-	for i, _ := range errors {
-		mockEsOp := NewMockBaseEsOp(ctrl)
-		mockEsOp.EXPECT().Post(gomock.Eq(srcIndexReq), gomock.Eq(param)).Return(nil, errors[i])
-
-		compositeOp := Create(mockEsOp)
-		_, err := compositeOp.postIndexInternal(srcIndexName, uri, param)
-		if err == nil {
-			t.Fatalf("Expect to be failed:%v, but err is nil", srcIndexReq)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		t.Logf("Exception Test! err:%v", err)
-	}
+	srcIndexReq := "just_tests_18/_open?pretty"
+	testOtherErr(srcIndexReq, "{}", PostIndexInternalType, t)
 } // }}}
 
 func Test_PostIndexInternal_Exception_EmptyIndexName(t *testing.T) { // {{{
@@ -8458,8 +7378,6 @@ func Test_DeleteIndexInternal_Exception_OtherErr(t *testing.T) { // {{{
 		if code != errors[i].Code {
 			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
 		}
-
-		t.Logf("Exception Test! err:%v", err)
 	}
 } // }}}
 
