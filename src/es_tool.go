@@ -238,331 +238,445 @@ func getSettingOrMapping(pathKey string, cmdConfigs map[string]string, cmdCfgDir
 	return confContent, nil
 } // }}}
 
-func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonConfigs map[string]string,
-	cmdCfgDir string) error { // {{{
-	// 执行命令
-	switch cmd {
-	case basetool.GetClusterHealth:
-		_, respJson, err := compositeOp.GetClusterHealth()
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		log.Printf("%v", respJson)
-	case basetool.CheckClusterName:
-		// 读取当前请求命令
-		clusterName, ok := cmdConfigs[basetool.ClusterName]
-		if !ok {
-			log.Printf("Not exist:%v", basetool.ClusterName)
-			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
-		}
-		isExist, err := compositeOp.CheckClusterName(clusterName)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
+type execCmdInternalHandler func(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error
 
-		if isExist {
-			log.Printf("[Equal] cluster name equal to %v", clusterName)
-		} else {
-			log.Printf("[Not Equal] cluster name not equal to %v", clusterName)
-		}
-	case basetool.GetClusterSettings:
-		_, respJson, err := compositeOp.GetClusterSettings()
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		log.Printf("%v", respJson)
-	case basetool.GetIndiceStatus:
-		// 读取当前请求命令
-		indexName, ok := cmdConfigs[basetool.IndexName]
-		if !ok {
-			log.Printf("Not exist:%v", basetool.IndexName)
-			return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndexName}
-		}
-		indiceInfo, err := compositeOp.GetIndice(indexName)
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
+var execCmdMapHandlers = map[string]execCmdInternalHandler{
+	basetool.GetClusterHealth:              getClusterHealthHandler,
+	basetool.CheckClusterName:              checkClusterNameHandler,
+	basetool.GetClusterSettings:            getClusterSettingsHandler,
+	basetool.GetIndiceStatus:               getIndiceStatusHandler,
+	basetool.SetIndiceAllocationOnAndOff:   setIndiceAllocationOnAndOffHandler,
+	basetool.CreateIndices:                 createIndicesHandler,
+	basetool.GetUnhealthIndicesWithNoClose: getUnhealthIndicesWithNoCloseHandler,
+	basetool.GetCloseIndices:               getCloseIndicesHandler,
+	basetool.GetWholeIndices:               getWholeIndicesHandler,
+	basetool.RecoveryUnhealthIndices:       recoveryUnhealthIndicesHandler,
+	basetool.GetIndiceSettings:             getIndiceSettingsHandler,
+	basetool.SetIndiceSettings:             setIndiceSettingsHandler,
+	basetool.GetIndiceMapping:              getIndiceMappingHandler,
+	basetool.SetIndiceMapping:              setIndiceMappingHandler,
+	basetool.GetCurrentRecovery:            getCurrentRecoveryHandler,
+	basetool.DataSink:                      sinkDataHandler,
+	basetool.CloseIndices:                  closeIndicesHandler,
+	basetool.OpenIndices:                   openIndicesHandler,
+	basetool.DeleteClosedIndices:           deleteClosedIndicesHandler,
+}
 
-		log.Printf("%v", indiceInfo)
-	case basetool.SetIndiceAllocationOnAndOff:
-		indiceLines, clusterName, waitSeconds, err := getConfig(true, true, true, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
+func getClusterHealthHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	_, respJson, err := compositeOp.GetClusterHealth()
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
+	log.Printf("%v", respJson)
+	return nil
+}
 
-		err = setAllocationOnAndOffInternal(compositeOp, cmdConfigs, indiceLines, clusterName, waitSeconds)
-		if err != nil {
-			log.Printf("Failed to setAllocationOnAndOffInternal, err:%v", err)
-			return err
-		}
-	case basetool.CreateIndices:
-		indiceLines, clusterName, waitSeconds, err := getConfig(true, true, true, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
+func checkClusterNameHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	// 读取当前请求命令
+	clusterName, ok := cmdConfigs[basetool.ClusterName]
+	if !ok {
+		log.Printf("Not exist:%v", basetool.ClusterName)
+		return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + clusterName}
+	}
+	isExist, err := compositeOp.CheckClusterName(clusterName)
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
 
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to create index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.CreateIndice(clusterName, indiceName, waitSeconds)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to create index:%v of cluster:%v\n", indiceName, clusterName)
-		}
-	case basetool.GetUnhealthIndicesWithNoClose:
-		indicesInfo, err := compositeOp.GetIndices()
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		nohealthIndices := make([]basetool.IndiceInfo, 0)
-		for _, indiceInfo := range indicesInfo {
-			if indiceInfo.Status != basetool.Close && indiceInfo.Health != basetool.Green {
-				nohealthIndices = append(nohealthIndices, indiceInfo)
-			}
-		}
+	if isExist {
+		log.Printf("[Equal] cluster name equal to %v", clusterName)
+	} else {
+		log.Printf("[Not Equal] cluster name not equal to %v", clusterName)
+	}
+	return nil
+}
 
-		printStr := make([]string, 0)
-		for _, nohealthIndice := range nohealthIndices {
-			tmp := fmt.Sprintf("%v\n", nohealthIndice)
-			printStr = append(printStr, tmp)
-		}
-		log.Printf("\n%s", printStr)
-	case basetool.GetCloseIndices:
-		indicesInfo, err := compositeOp.GetIndices()
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		closeIndices := make([]basetool.IndiceInfo, 0)
-		for _, indiceInfo := range indicesInfo {
-			if indiceInfo.Status == basetool.Close {
-				closeIndices = append(closeIndices, indiceInfo)
-			}
-		}
+func getClusterSettingsHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	_, respJson, err := compositeOp.GetClusterSettings()
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
+	log.Printf("%v", respJson)
+	return nil
+}
 
-		printStr := make([]string, 0)
-		for _, closeIndice := range closeIndices {
-			tmp := fmt.Sprintf("%v\n", closeIndice)
-			printStr = append(printStr, tmp)
-		}
-		log.Printf("\n%s", printStr)
-	case basetool.GetWholeIndices:
-		indicesInfo, err := compositeOp.GetIndices()
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		printStr := make([]string, 0)
-		for _, indice := range indicesInfo {
-			tmp := fmt.Sprintf("%v\n", indice)
-			printStr = append(printStr, tmp)
-		}
-		log.Printf("\n%s", printStr)
-	case basetool.RecoveryUnhealthIndices:
-		indicesInfo, err := compositeOp.GetIndices()
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		// nohealthIndices := make([]basetool.IndiceInfo, 0)
-		nohealthIndices := make([]string, 0)
-		for _, indiceInfo := range indicesInfo {
-			if indiceInfo.Status != basetool.Close && indiceInfo.Health != basetool.Green {
-				nohealthIndices = append(nohealthIndices, indiceInfo.Name)
-			}
-		}
+func getIndiceStatusHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	// 读取当前请求命令
+	indexName, ok := cmdConfigs[basetool.IndexName]
+	if !ok {
+		log.Printf("Not exist:%v", basetool.IndexName)
+		return basetool.Error{Code: basetool.ErrNotFound, Message: "Not found " + basetool.IndexName}
+	}
+	indexInfo, err := compositeOp.GetIndice(indexName)
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
 
-		_, clusterName, waitSecond, err := getConfig(false, true, true, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
+	log.Printf("%v", indexInfo)
+	return nil
+}
 
-		err = setAllocationOnAndOffInternal(compositeOp, cmdConfigs, nohealthIndices, clusterName, waitSecond)
-		if err != nil {
-			log.Printf("Failed to setAllocationOnAndOffInternal, err:%v", err)
-			return err
-		}
-	case basetool.GetIndiceSettings:
-		indiceLines, _, _, err := getConfig(true, false, false, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
+func setIndiceAllocationOnAndOffHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indiceLines, clusterName, waitSeconds, err := getConfig(true, true, true, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
 
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to get settings of index:%v \n", indiceName)
-			_, mappingStr, err := compositeOp.GetIndexSettings(indiceName)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-
-			log.Printf("settings of %v is:\n%v", indiceName, mappingStr)
-
-			log.Printf("[End] to get settings of index:%v\n", indiceName)
-		}
-	case basetool.SetIndiceSettings:
-		settingsContent, err := getSettingOrMapping(basetool.SettingsPath, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return nil
-		}
-
-		indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
-
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to set settings of index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.SetIndiceSettings(clusterName, indiceName, string(settingsContent))
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to set settings of index:%v of cluster:%v\n", indiceName, clusterName)
-		}
-	case basetool.GetIndiceMapping:
-		indiceLines, _, _, err := getConfig(true, false, false, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
-
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to get mapping of index:%v \n", indiceName)
-			_, mappingStr, err := compositeOp.GetIndexMapping(indiceName)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-
-			log.Printf("mapping of %v is:\n%v", indiceName, mappingStr)
-
-			log.Printf("[End] to get mapping of index:%v\n", indiceName)
-		}
-	case basetool.SetIndiceMapping:
-		mappingContent, err := getSettingOrMapping(basetool.MappingPath, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return nil
-		}
-
-		indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to set mapping of index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.SetIndiceMapping(clusterName, indiceName, string(mappingContent))
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to set mapping of index:%v of cluster:%v\n", indiceName, clusterName)
-		}
-	case basetool.GetCurrentRecovery:
-		_, respJson, err := compositeOp.GetRecoveryInfo()
-		if err != nil {
-			log.Printf("err:%v", err)
-			return err
-		}
-		log.Printf("%v", respJson)
-
-	case basetool.DataSink:
-		settingsContent, err := getSettingOrMapping(basetool.SettingsPath, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return nil
-		}
-
-		indiceLines, clusterName, waitSeconds, err := getConfig(true, true, true, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
-		if len(indiceLines) == 0 {
-			log.Printf("No indice to sink\n")
-			return nil
-		}
-
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to sink of index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.SetIndiceSettings(clusterName, indiceName, string(settingsContent))
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-
-			err = compositeOp.SetIndiceAllocationOnAndOff(clusterName, indiceName, waitSeconds)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to sink of index:%v of cluster:%v\n", indiceName, clusterName)
-		}
-
-	case basetool.CloseIndices:
-		indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
-
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to close index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.CloseIndice(clusterName, indiceName)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to close index:%v of cluster:%v\n", indiceName, clusterName)
-		}
-	case basetool.OpenIndices:
-		indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
-
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to open index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.OpenIndice(clusterName, indiceName)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to open index:%v of cluster:%v\n", indiceName, clusterName)
-		}
-	case basetool.DeleteClosedIndices:
-		indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
-		if err != nil {
-			return err
-		}
-
-		// 处理每一个索引
-		for _, indiceName := range indiceLines {
-			log.Printf("[Begin] to delete closed index:%v of cluster:%v\n", indiceName, clusterName)
-			err = compositeOp.DeleteClosedIndice(clusterName, indiceName)
-			if err != nil {
-				log.Printf("err:%v", err)
-				return err
-			}
-			log.Printf("[End] to delete closed index:%v of cluster:%v\n", indiceName, clusterName)
-		}
-	default:
-		log.Printf("Invalid cmd:%v", cmd)
-		return basetool.Error{Code: basetool.ErrInvalidParam, Message: "Invalid cmd" + cmd}
+	err = setAllocationOnAndOffInternal(compositeOp, cmdConfigs, indiceLines, clusterName, waitSeconds)
+	if err != nil {
+		log.Printf("Failed to setAllocationOnAndOffInternal, err:%v", err)
+		return err
 	}
 
 	return nil
-} // }}}
+}
+
+func createIndicesHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indiceLines, clusterName, waitSeconds, err := getConfig(true, true, true, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to create index:%v of cluster:%v\n", indexName, clusterName)
+		err = compositeOp.CreateIndice(clusterName, indexName, waitSeconds)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to create index:%v of cluster:%v\n", indexName, clusterName)
+	}
+	return nil
+}
+
+func getUnhealthIndicesWithNoCloseHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indicesInfo, err := compositeOp.GetIndices()
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
+	nohealthIndices := make([]basetool.IndiceInfo, 0)
+	for _, indexInfo := range indicesInfo {
+		if indexInfo.Status != basetool.Close && indexInfo.Health != basetool.Green {
+			nohealthIndices = append(nohealthIndices, indexInfo)
+		}
+	}
+
+	printStr := make([]string, 0)
+	for _, nohealthIndice := range nohealthIndices {
+		tmp := fmt.Sprintf("%v\n", nohealthIndice)
+		printStr = append(printStr, tmp)
+	}
+	log.Printf("\n%s", printStr)
+
+	return nil
+}
+
+func getCloseIndicesHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indicesInfo, err := compositeOp.GetIndices()
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
+	closeIndices := make([]basetool.IndiceInfo, 0)
+	for _, indexInfo := range indicesInfo {
+		if indexInfo.Status == basetool.Close {
+			closeIndices = append(closeIndices, indexInfo)
+		}
+	}
+
+	printStr := make([]string, 0)
+	for _, closeIndice := range closeIndices {
+		tmp := fmt.Sprintf("%v\n", closeIndice)
+		printStr = append(printStr, tmp)
+	}
+	log.Printf("\n%s", printStr)
+	return nil
+}
+
+func getWholeIndicesHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indicesInfo, err := compositeOp.GetIndices()
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
+	printStr := make([]string, 0)
+	for _, index := range indicesInfo {
+		tmp := fmt.Sprintf("%v\n", index)
+		printStr = append(printStr, tmp)
+	}
+	log.Printf("\n%s", printStr)
+
+	return nil
+}
+
+func recoveryUnhealthIndicesHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indicesInfo, err := compositeOp.GetIndices()
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
+	// nohealthIndices := make([]basetool.IndiceInfo, 0)
+	nohealthIndices := make([]string, 0)
+	for _, indexInfo := range indicesInfo {
+		if indexInfo.Status != basetool.Close && indexInfo.Health != basetool.Green {
+			nohealthIndices = append(nohealthIndices, indexInfo.Name)
+		}
+	}
+
+	_, clusterName, waitSecond, err := getConfig(false, true, true, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	err = setAllocationOnAndOffInternal(compositeOp, cmdConfigs, nohealthIndices, clusterName, waitSecond)
+	if err != nil {
+		log.Printf("Failed to setAllocationOnAndOffInternal, err:%v", err)
+		return err
+	}
+
+	return nil
+}
+
+func getIndiceSettingsHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indiceLines, _, _, err := getConfig(true, false, false, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to get settings of index:%v \n", indexName)
+		_, mappingStr, err := compositeOp.GetIndexSettings(indexName)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+
+		log.Printf("settings of %v is:\n%v", indexName, mappingStr)
+
+		log.Printf("[End] to get settings of index:%v\n", indexName)
+	}
+
+	return nil
+}
+
+func setIndiceSettingsHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	settingsContent, err := getSettingOrMapping(basetool.SettingsPath, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return nil
+	}
+
+	indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to set settings of index:%v of cluster:%v\n", indexName, clusterName)
+		err = compositeOp.SetIndiceSettings(clusterName, indexName, string(settingsContent))
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to set settings of index:%v of cluster:%v\n", indexName, clusterName)
+	}
+
+	return nil
+}
+
+func getIndiceMappingHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indiceLines, _, _, err := getConfig(true, false, false, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to get mapping of index:%v \n", indexName)
+		_, mappingStr, err := compositeOp.GetIndexMapping(indexName)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+
+		log.Printf("mapping of %v is:\n%v", indexName, mappingStr)
+
+		log.Printf("[End] to get mapping of index:%v\n", indexName)
+	}
+
+	return nil
+}
+
+func setIndiceMappingHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	mappingContent, err := getSettingOrMapping(basetool.MappingPath, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return nil
+	}
+
+	indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to set mapping of index:%v of cluster:%v\n", indexName, clusterName)
+		err = compositeOp.SetIndiceMapping(clusterName, indexName, string(mappingContent))
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to set mapping of index:%v of cluster:%v\n", indexName, clusterName)
+	}
+
+	return nil
+}
+
+func getCurrentRecoveryHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	_, respJson, err := compositeOp.GetRecoveryInfo()
+	if err != nil {
+		log.Printf("err:%v", err)
+		return err
+	}
+	log.Printf("%v", respJson)
+
+	return nil
+}
+
+func sinkDataHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	settingsContent, err := getSettingOrMapping(basetool.SettingsPath, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return nil
+	}
+
+	indiceLines, clusterName, waitSeconds, err := getConfig(true, true, true, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+	if len(indiceLines) == 0 {
+		log.Printf("No indice to sink\n")
+		return nil
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to sink of index:%v of cluster:%v\n", indexName, clusterName)
+		err = compositeOp.SetIndiceSettings(clusterName, indexName, string(settingsContent))
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+
+		err = compositeOp.SetIndiceAllocationOnAndOff(clusterName, indexName, waitSeconds)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to sink of index:%v of cluster:%v\n", indexName, clusterName)
+	}
+
+	return nil
+}
+
+func closeIndicesHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to close index:%v of cluster:%v\n", indexName, clusterName)
+		err = compositeOp.CloseIndice(clusterName, indexName)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to close index:%v of cluster:%v\n", indexName, clusterName)
+	}
+
+	return nil
+}
+
+func openIndicesHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to open index:%v of cluster:%v\n", indexName, clusterName)
+		err = compositeOp.OpenIndice(clusterName, indexName)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to open index:%v of cluster:%v\n", indexName, clusterName)
+	}
+
+	return nil
+}
+
+func deleteClosedIndicesHandler(cmd string, compositeOp *basetool.CompositeOp,
+	cmdConfigs map[string]string, cmdCfgDir string) error {
+	indiceLines, clusterName, _, err := getConfig(true, true, false, cmdConfigs, cmdCfgDir)
+	if err != nil {
+		return err
+	}
+
+	// 处理每一个索引
+	for _, indexName := range indiceLines {
+		log.Printf("[Begin] to delete closed index:%v of cluster:%v\n", indexName, clusterName)
+		err = compositeOp.DeleteClosedIndice(clusterName, indexName)
+		if err != nil {
+			log.Printf("err:%v", err)
+			return err
+		}
+		log.Printf("[End] to delete closed index:%v of cluster:%v\n", indexName, clusterName)
+	}
+
+	return nil
+}
+
+func execCmd(cmd string, compositeOp *basetool.CompositeOp, cmdConfigs, commonConfigs map[string]string,
+	cmdCfgDir string) error {
+
+    if handler, ok := execCmdMapHandlers[cmd]; ok {
+        return handler(cmd, compositeOp, cmdConfigs, cmdCfgDir)
+    } else {
+		log.Printf("Invalid cmd:%v", cmd)
+		return basetool.Error{Code: basetool.ErrInvalidParam, Message: "Invalid cmd" + cmd}
+    }
+
+    return nil
+}
+
 
 func setAllocationOnAndOffInternal(compositeOp *basetool.CompositeOp, cmdConfigs map[string]string,
 	indicesName []string, clusterName string, waitSeconds int) error { // {{{

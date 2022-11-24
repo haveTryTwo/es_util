@@ -23,7 +23,7 @@ const (
 	GetClusterHealthType
 	CheckClusterNameType
 	GetIndicesType
-	GetSpecailStatusIndicesType
+	GetSpecialStatusIndicesType
 	GetClusterSettingsType
 	GetClusterSettingsOfKeyType
 	GetIndexSettingsType
@@ -38,6 +38,26 @@ const (
 	PostIndexInternalType
 	DeleteIndexInternalType
 )
+
+type getInfoInternalHandler func(string, *CompositeOp) (map[string]interface{}, string, error)
+
+var normalGetMapHandlers = map[int]getInfoInternalHandler{
+	GetInfoInternalType:    onGetInfoInternal,
+	GetClusterHealthType:   onGetClusterHealth,
+	GetClusterSettingsType: onGetClusterSetttings,
+}
+
+func onGetInfoInternal(req string, compositeOp *CompositeOp) (map[string]interface{}, string, error) {
+	return compositeOp.getInfoInternal(req)
+}
+
+func onGetClusterHealth(req string, compositeOp *CompositeOp) (map[string]interface{}, string, error) {
+	return compositeOp.GetClusterHealth()
+}
+
+func onGetClusterSetttings(req string, compositeOp *CompositeOp) (map[string]interface{}, string, error) {
+	return compositeOp.GetClusterSettings()
+}
 
 func testNormalGet(req string, resps []string, testType int, t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
@@ -54,14 +74,9 @@ func testNormalGet(req string, resps []string, testType int, t *testing.T) { // 
 
 		compositeOp := Create(mockEsOp)
 		var respByte string
-		switch testType {
-		case GetInfoInternalType:
-			respMap, respByte, err = compositeOp.getInfoInternal(req)
-		case GetClusterHealthType:
-			respMap, respByte, err = compositeOp.GetClusterHealth()
-		case GetClusterSettingsType:
-			respMap, respByte, err = compositeOp.GetClusterSettings()
-		default:
+		if handler, ok := normalGetMapHandlers[testType]; ok {
+			respMap, respByte, err = handler(req, compositeOp)
+		} else {
 			t.Fatalf("Invalid test type %v", testType)
 		}
 
@@ -90,6 +105,125 @@ func testNormalGet(req string, resps []string, testType int, t *testing.T) { // 
 		}
 	}
 } // }}}
+
+type errHandler func(string, string, string, *CompositeOp) error
+
+var errHandlers = map[int]errHandler{
+	GetInfoInternalType:                  onGetInfoInternalErr,
+	GetClusterHealthType:                 onGetClusterHealthErr,
+	CheckClusterNameType:                 onCheckClusterNameErr,
+	GetClusterSettingsType:               onGetClusterSettingsErr,
+	GetClusterSettingsOfKeyType:          onGetClusterSettingsOfKeyErr,
+	GetIndexSettingsType:                 onGetIndexSettingsErr,
+	GetIndexSettingsOfKeyType:            onGetIndexSettingsOfKeyErr,
+	GetIndexMappingType:                  onGetIndexMappingErr,
+	GetRecoveryInfoType:                  onGetRecoveryInfoErr,
+	SetIndiceAllocationOnAndOffType:      onSetIndiceAllocationAndOffErr,
+	SetBatchIndiceAllocationOnAndOffType: onSetBatchIndiceAllocationOnAndOffErr,
+	CreateIndiceType:                     onCreateIndiceErr,
+	SetIndiceSettingsType:                onSetIndiceSettingsErr,
+	SetIndiceMappingType:                 onSetIndiceMappingErr,
+	GetIndicesType:                       onGetIndicesErr,
+	GetSpecialStatusIndicesType:          onGetSpecialStatusIndicesTypeErr,
+	PostIndexInternalType:                onPostIndexInternalErr,
+}
+
+func onGetIndicesErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, err := compositeOp.GetIndices()
+	return err
+}
+
+func onGetSpecialStatusIndicesTypeErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, err := compositeOp.GetSpecialStatusIndices(Open)
+	return err
+}
+
+func onPostIndexInternalErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, err := compositeOp.postIndexInternal(indexName, "/_open?pretty", "{}")
+	return err
+}
+
+func onGetInfoInternalErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, _, err := compositeOp.getInfoInternal(req)
+	return err
+}
+
+func onGetClusterHealthErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, _, err := compositeOp.GetClusterHealth()
+	return err
+}
+
+func onCheckClusterNameErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, err := compositeOp.CheckClusterName("aabb")
+	return err
+}
+
+func onGetClusterSettingsErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, _, err := compositeOp.GetClusterSettings()
+	return err
+}
+
+func onGetClusterSettingsOfKeyErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	srcKey := "transient.cluster.routing.allocation.enable"
+	_, err := compositeOp.GetClusterSettingsOfKey(srcKey)
+	return err
+}
+
+func onGetIndexSettingsErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	_, _, err := compositeOp.GetIndexSettings(indexName)
+	return err
+}
+
+func onGetIndexSettingsOfKeyErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	srcKey := "index.routing.allocation.enable"
+	_, err := compositeOp.GetIndexSettingsOfKey(indexName, srcKey)
+	return err
+}
+
+func onGetIndexMappingErr(req string, clusterName string, indexName string, compositeOp *CompositeOp) error {
+	_, _, err := compositeOp.GetIndexMapping(indexName)
+	return err
+}
+
+func onGetRecoveryInfoErr(req string, clusterName string, indexName string, compositeOp *CompositeOp) error {
+	_, _, err := compositeOp.GetRecoveryInfo()
+	return err
+}
+
+func onSetIndiceAllocationAndOffErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	return compositeOp.SetIndiceAllocationOnAndOff(clusterName, indexName, 1)
+}
+
+func onSetBatchIndiceAllocationOnAndOffErr(req string, clusterName string, indexName string,
+	compositeOp *CompositeOp) error {
+	srcIndicesName := []string{"just_tests_01"}
+	return compositeOp.SetBatchIndiceAllocationOnAndOff(clusterName, srcIndicesName, 1)
+}
+
+func onCreateIndiceErr(req string, clusterName string, indexName string, compositeOp *CompositeOp) error {
+	return compositeOp.CreateIndice(clusterName, indexName, 1)
+}
+
+func onSetIndiceSettingsErr(req string, clusterName string, indexName string, compositeOp *CompositeOp) error {
+	settingParam := `{"index.routing.allocation.enable": "none"}`
+	return compositeOp.SetIndiceSettings(clusterName, indexName, settingParam)
+}
+
+func onSetIndiceMappingErr(req string, clusterName string, indexName string, compositeOp *CompositeOp) error {
+	mappingParam := `{"properties":{"age":{"type":"integer"} } }`
+	return compositeOp.SetIndiceMapping(clusterName, indexName, mappingParam)
+}
 
 func testResponseErr(url string, testType int, t *testing.T) { // {{{
 	ctrl := gomock.NewController(t)
@@ -129,58 +263,7 @@ func testResponseErr(url string, testType int, t *testing.T) { // {{{
 		mockEsOp := NewMockBaseEsOp(ctrl)
 		mockEsOp.EXPECT().Get(gomock.Eq(req)).Return([]byte(resps[i]), nil)
 
-		compositeOp := Create(mockEsOp)
-
-		var err error
-		srcIndexName := "just_tests_18"
-		srcCheckClusterName := "HaveTryTwo_First_One"
-		switch testType {
-		case GetInfoInternalType:
-			_, _, err = compositeOp.getInfoInternal(req)
-		case GetClusterHealthType:
-			_, _, err = compositeOp.GetClusterHealth()
-		case CheckClusterNameType:
-			_, err = compositeOp.CheckClusterName("aabb")
-		case GetClusterSettingsType:
-			_, _, err = compositeOp.GetClusterSettings()
-		case GetClusterSettingsOfKeyType:
-			srcKey := "transient.cluster.routing.allocation.enable"
-			_, err = compositeOp.GetClusterSettingsOfKey(srcKey)
-		case GetIndexSettingsType:
-			_, _, err = compositeOp.GetIndexSettings(srcIndexName)
-		case GetIndexSettingsOfKeyType:
-			srcKey := "index.routing.allocation.enable"
-			_, err = compositeOp.GetIndexSettingsOfKey(srcIndexName, srcKey)
-		case GetIndexMappingType:
-			_, _, err = compositeOp.GetIndexMapping(srcIndexName)
-		case GetRecoveryInfoType:
-			_, _, err = compositeOp.GetRecoveryInfo()
-		case SetIndiceAllocationOnAndOffType:
-			err = compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndexName, 1)
-		case SetBatchIndiceAllocationOnAndOffType:
-			srcIndicesName := []string{"just_tests_01"}
-			err = compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
-		case CreateIndiceType:
-			err = compositeOp.CreateIndice(srcCheckClusterName, srcIndexName, 1)
-		case SetIndiceSettingsType:
-			settingParam := `{"index.routing.allocation.enable": "none"}`
-			err = compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndexName, settingParam)
-		case SetIndiceMappingType:
-			mappingParam := `{"properties":{"age":{"type":"integer"} } }`
-			err = compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndexName, mappingParam)
-		default:
-			t.Fatalf("Invalid test type %v", testType)
-		}
-
-		if err == nil {
-			t.Fatalf("Mock resp expect to be failed:%v, but err nil", errors[i])
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not expect: %v", code, errors[i].Code)
-		}
-		t.Logf("Exception Test! err:%v", err)
+		testErrHandlerInternal(req, testType, mockEsOp, t, errors[i], false)
 	}
 } // }}}
 
@@ -205,68 +288,38 @@ func testOtherErr(req string, param string, testType int, t *testing.T) { // {{{
 			mockEsOp.EXPECT().Post(gomock.Eq(req), gomock.Eq(param)).Return(nil, errors[i])
 		}
 
-		compositeOp := Create(mockEsOp)
-		var err error
-		srcCheckClusterName := "HaveTryTwo_First_One"
-		srcIndexName := "just_tests_18"
-		switch testType {
-		case GetInfoInternalType:
-			_, _, err = compositeOp.getInfoInternal(req)
-		case GetClusterHealthType:
-			_, _, err = compositeOp.GetClusterHealth()
-		case CheckClusterNameType:
-			_, err = compositeOp.CheckClusterName("aabb")
-		case GetIndicesType:
-			_, err = compositeOp.GetIndices()
-		case GetSpecailStatusIndicesType:
-			_, err = compositeOp.GetSpecialStatusIndices(Open)
-		case GetClusterSettingsType:
-			_, _, err = compositeOp.GetClusterSettings()
-		case GetClusterSettingsOfKeyType:
-			srcKey := "transient.cluster.routing.allocation.enable"
-			_, err = compositeOp.GetClusterSettingsOfKey(srcKey)
-		case GetIndexSettingsType:
-			_, _, err = compositeOp.GetIndexSettings(srcIndexName)
-		case GetIndexSettingsOfKeyType:
-			srcKey := "index.routing.allocation.enable"
-			_, err = compositeOp.GetIndexSettingsOfKey(srcIndexName, srcKey)
-		case GetIndexMappingType:
-			_, _, err = compositeOp.GetIndexMapping(srcIndexName)
-		case GetRecoveryInfoType:
-			_, _, err = compositeOp.GetRecoveryInfo()
-		case SetIndiceAllocationOnAndOffType:
-			err = compositeOp.SetIndiceAllocationOnAndOff(srcCheckClusterName, srcIndexName, 1)
-		case SetBatchIndiceAllocationOnAndOffType:
-			srcIndicesName := []string{"just_tests_01"}
-			err = compositeOp.SetBatchIndiceAllocationOnAndOff(srcCheckClusterName, srcIndicesName, 1)
-		case CreateIndiceType:
-			err = compositeOp.CreateIndice(srcCheckClusterName, srcIndexName, 1)
-		case SetIndiceSettingsType:
-			settingParam := `{"index.routing.allocation.enable": "none"}`
-			err = compositeOp.SetIndiceSettings(srcCheckClusterName, srcIndexName, settingParam)
-		case SetIndiceMappingType:
-			mappingParam := `{"properties":{"age":{"type":"integer"} } }`
-			err = compositeOp.SetIndiceMapping(srcCheckClusterName, srcIndexName, mappingParam)
-		case PostIndexInternalType:
-			_, err = compositeOp.postIndexInternal(srcIndexName, "/_open?pretty", "{}")
-		default:
-			t.Fatalf("Invalid test type %v", testType)
-		}
-		if err == nil {
-			t.Fatalf("Expect getInfoInternal %v excute failed, but err is nil", req)
-		}
-
-		code, _ := DecodeErr(err)
-		if code != errors[i].Code {
-			t.Fatalf("err code:%v is not %v", code, errors[i].Code)
-		}
-
-		if err != errors[i] {
-			t.Fatalf("err %v is not equal to %v", err, errors[i])
-		}
-
-		t.Logf("Exception Test! err:%v", err)
+		testErrHandlerInternal(req, testType, mockEsOp, t, errors[i], true)
 	}
+} // }}}
+
+func testErrHandlerInternal(req string, testType int, esOp BaseEsOp, t *testing.T,
+	checkErr Error, checkFullErr bool) { // {{{
+	compositeOp := Create(esOp)
+	var err error
+	srcCheckClusterName := "HaveTryTwo_First_One"
+	srcIndexName := "just_tests_18"
+	if handler, ok := errHandlers[testType]; ok {
+		err = handler(req, srcCheckClusterName, srcIndexName, compositeOp)
+	} else {
+		t.Fatalf("Invalid test type %v", testType)
+	}
+
+	if err == nil {
+		t.Fatalf("Expect getInfoInternal %v excute failed, but err is nil", req)
+	}
+
+	code, _ := DecodeErr(err)
+	if code != checkErr.Code {
+		t.Fatalf("err code:%v is not %v", code, checkErr.Code)
+	}
+
+	if checkFullErr {
+		if err != checkErr {
+			t.Fatalf("err %v is not equal to %v", err, checkErr)
+		}
+	}
+
+	t.Logf("Exception Test! err:%v", err)
 } // }}}
 
 func Test_GetInfoInternal_Normal_Get(t *testing.T) { // {{{
@@ -1657,7 +1710,7 @@ func Test_GetSpecialStatusIndices_Exception_JsonResp(t *testing.T) { // {{{
 
 func Test_GetSpecialStatusIndices_Exception_OtherErr(t *testing.T) { // {{{
 	srcIndicesReq := "_cat/indices?pretty"
-	testOtherErr(srcIndicesReq, "", GetSpecailStatusIndicesType, t)
+	testOtherErr(srcIndicesReq, "", GetSpecialStatusIndicesType, t)
 } // }}}
 
 func Test_GetClusterSettings_Normal_Get(t *testing.T) { // {{{
@@ -2957,12 +3010,7 @@ func Test_SetIndexSettingsInternal_Normal_Set(t *testing.T) { // {{{
         "creation_date" : "1609029284313",
         "number_of_replicas" : "5",
         "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
-        "version" : {
-          "created" : "6030999"
-        }
-      }
-    }
-  }
+        "version" : { "created" : "6030999" } } } }
 }`, `{
   "just_tests_15" : {
     "settings" : {
@@ -2987,10 +3035,7 @@ func Test_SetIndexSettingsInternal_Normal_Set(t *testing.T) { // {{{
     "settings" : {
       "index" : {
         "routing" : {
-          "allocation" : {
-            "enable" : "all"
-          }
-        },
+          "allocation" : { "enable" : "all" } },
         "number_of_shards" : "88",
         "provided_name" : "just_tests_10",
         "creation_date" : "1609029284313",
@@ -3011,9 +3056,7 @@ func Test_SetIndexSettingsInternal_Normal_Set(t *testing.T) { // {{{
         "creation_date" : "1609029784313",
         "number_of_replicas" : "5",
         "uuid" : "MX5jxasdYQvidcOasdDPdblQ",
-        "version" : {
-          "created" : "6030999"
-        }
+        "version" : { "created" : "6030999" }
       }
     }
   }
@@ -3369,41 +3412,16 @@ func Test_SetIndexMappingInternal_Normal_Set(t *testing.T) { // {{{
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "copy_to_name" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false,
-            "copy_to" : [
-              "copy_to_name"
-            ]
-          }
-        }
-      }
-    }
-  }
-}`, `{
+          "copy_to_name" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false,
+            "copy_to" : [ "copy_to_name" ] } } } } } }`, `{
   "tests_15" : {
     "mappings" : {
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false
-          }
-        }
-      }
-    }
-  }
-}`, `{
-}`,
+          "country" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false } } } } } }`, `{ }`,
 	}
 
 	srcAfterGetResps := []string{` {
@@ -3412,62 +3430,24 @@ func Test_SetIndexMappingInternal_Normal_Set(t *testing.T) { // {{{
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "copy_to_name" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false,
-            "copy_to" : [
-              "copy_to_name"
-            ]
-          },
-          "age" : {
-            "type" : "integer"
-          }
-        }
-      }
-    }
-  }
-}`, `{
+          "copy_to_name" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false,
+            "copy_to" : [ "copy_to_name" ] },
+          "age" : { "type" : "integer" } } } } } }`, `{
   "tests_15" : {
     "mappings" : {
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false
-          },
-          "hehe" : {
-            "type" : "keyword",
-            "index" : false,
-            "doc_values" : false
-          }
-        }
-      }
-    }
-  }
-}`, `{
+          "country" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false },
+          "hehe" : { "type" : "keyword", "index" : false, "doc_values" : false } } } } } }`, `{
   "tests_18" : {
     "mappings" : {
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          }
-        }
-      }
-    }
-  }
-}`,
+          "country" : { "type" : "keyword", "index" : false } } } } } }`,
 	}
 
 	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18"}
@@ -3482,26 +3462,11 @@ func Test_SetIndexMappingInternal_Normal_Set(t *testing.T) { // {{{
 
 	params := []string{`{
         "properties": {
-          "age" : {
-            "type" : "integer"
-          }
-        }
-    }`, `{
+          "age" : { "type" : "integer" } } }`, `{
         "properties": {
-          "hehe" : {
-            "type" : "keyword",
-            "index" : false,
-            "doc_values" : false,
-          }
-      }
-    }`, `{
+          "hehe" : { "type" : "keyword", "index" : false, "doc_values" : false, } } }`, `{
         "properties": {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          }
-      }
-    }`,
+          "country" : { "type" : "keyword", "index" : false } } }`,
 	}
 
 	srcIndexPutResps := []string{`{
@@ -3579,54 +3544,18 @@ func Test_SetIndexMappingInternal_Exception_ResponseErr(t *testing.T) { // {{{
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "copy_to_name" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false,
-            "copy_to" : [
-              "copy_to_name"
-            ]
-          }
-        }
-      }
-    }
-  }
-}`, `{
+          "copy_to_name" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false,
+            "copy_to" : [ "copy_to_name" ] } } } } } }`, `{
   "just_tests_15" : {
-    "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
-}`, `{
+    "mappings" : { "_doc" : { "name": {"type":"keyword"} } } } }`, `{
   "just_tests_18" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
-}`, `{
+      "_doc" : { "name": {"type":"keyword"} } } } }`, `{
   "tests_21" : {
-    "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
-}`, `{
+    "mappings" : { "_doc" : { "name": {"type":"keyword"} } } } }`, `{
   "tests_22" : {
-    "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
-}`,
+    "mappings" : { "_doc" : { "name": {"type":"keyword"} } } } }`,
 	}
 
 	srcAfterGetResps := []string{` {
@@ -3634,60 +3563,22 @@ func Test_SetIndexMappingInternal_Exception_ResponseErr(t *testing.T) { // {{{
     "mappings" : {
       "_doc" : {
         "dynamic" : "strict",
-        "properties" : {
-          "copy_to_name" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false,
-            "copy_to" : [
-              "copy_to_name"
-            ]
-          },
-          "age" : {"type": "integer"}
-        }
-      }
-    }
-  }
-}`, `{
+        "properties" : { "copy_to_name" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false,
+            "copy_to" : [ "copy_to_name" ] },
+          "age" : {"type": "integer"} } } } } }`, `{
   "just_tests_15" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"},
-          "info": {"type":"keyword"}
-      }
-    }
-  }
-}`, `{
+      "_doc" : { "name": {"type":"keyword"}, "info": {"type":"keyword"} } } } }`, `{
   "just_tests_18" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"},
-          "info": {"type":"text"}
-      }
-    }
-  }
-}`, `{
+      "_doc" : { "name": {"type":"keyword"}, "info": {"type":"text"} } } } }`, `{
   "tests_21" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"},
-          "info": {"type":"integer"}
-      }
-    }
-  }
-}`, `{
+      "_doc" : { "name": {"type":"keyword"}, "info": {"type":"integer"} } } } }`, `{
   "tests_22" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"},
-          "info": {"type":"long"}
-      }
-    }
-  }
-}`,
+      "_doc" : { "name": {"type":"keyword"}, "info": {"type":"long"} } } } }`,
 	}
 	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18", "tests_21", "tests_22"}
 	getUri := "/_mapping?pretty"
@@ -3699,12 +3590,7 @@ func Test_SetIndexMappingInternal_Exception_ResponseErr(t *testing.T) { // {{{
 		srcPutIndexReqs = append(srcPutIndexReqs, srcIndexName+putUri)
 	}
 
-	param := `{
-        "properties": {
-          "age" : {
-            "type" : "integer"
-          }
-        }}`
+	param := `{ "properties": { "age" : { "type" : "integer" } } }`
 
 	srcIndexResps := []string{`{
         "xxxyyyyjjmm"
@@ -3782,54 +3668,28 @@ func Test_SetIndexMappingsInternal_Exception_OtherErr(t *testing.T) { // {{{
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "copy_to_name" : {
-            "type" : "keyword",
-            "index" : false
+          "copy_to_name" : { "type" : "keyword", "index" : false
           },
           "name" : {
             "type" : "keyword",
             "doc_values" : false,
-            "copy_to" : [
-              "copy_to_name"
-            ]
-          }
-        }
-      }
-    }
-  }
+            "copy_to" : [ "copy_to_name" ] } } } } }
 }`, `{
   "just_tests_15" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
+      "_doc" : { "name": {"type":"keyword"} } } }
 }`, `{
   "just_tests_18" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
+      "_doc" : { "name": {"type":"keyword" } } } }
 }`, `{
   "tests_21" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
+      "_doc" : { "name": {"type":"keyword"} } } }
 }`, `{
   "tests_22" : {
     "mappings" : {
-      "_doc" : {
-          "name": {"type":"keyword"}
-      }
-    }
-  }
-}`,
+      "_doc" : { "name": {"type":"keyword"} } } } }`,
 	}
 
 	srcAfterGetResps := []string{` {
@@ -6098,9 +5958,7 @@ func Test_SetIndiceSettings_Normal_Set(t *testing.T) { // {{{
 	srcCheckClusterReq := "_cluster/health?pretty"
 	srcCheckClusterResp := `{
   "cluster_name" : "HaveTryTwo_First_One",
-  "status" : "green",
-  "number_of_nodes" : 6
-}`
+  "status" : "green", "number_of_nodes" : 6 }`
 
 	// GetIndice
 	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18"}
@@ -6128,13 +5986,8 @@ func Test_SetIndiceSettings_Normal_Set(t *testing.T) { // {{{
         "creation_date" : "1609029284313",
         "number_of_replicas" : "5",
         "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
-        "version" : {
-          "created" : "6030999"
-        }
-      }
-    }
-  }
-}`, `{
+        "version" : { "created" : "6030999" }
+        } } } }`, `{
   "just_tests_15" : {
     "settings" : {
       "index" : {
@@ -6143,37 +5996,19 @@ func Test_SetIndiceSettings_Normal_Set(t *testing.T) { // {{{
         "creation_date" : "1609029784313",
         "number_of_replicas" : "2",
         "uuid" : "MX5jxasdYQvidcOasdDPdblQ",
-        "version" : {
-          "created" : "6030999"
-        }
-      }
-    }
-  }
-}`, `{
-}`,
-	}
+        "version" : {   "created" : "6030999" } } }} }`, `{ }`}
 
 	srcAfterGetResps := []string{` {
   "just_tests_10" : {
     "settings" : {
       "index" : {
-        "routing" : {
-          "allocation" : {
-            "enable" : "all"
-          }
-        },
+        "routing" : {  "allocation" : { "enable" : "all" }       },
         "number_of_shards" : "88",
         "provided_name" : "just_tests_10",
         "creation_date" : "1609029284313",
         "number_of_replicas" : "5",
         "uuid" : "iX5jxasdYQvidcOasdDPdblQ",
-        "version" : {
-          "created" : "6030999"
-        }
-      }
-    }
-  }
-}`, `{
+        "version" : {   "created" : "6030999" } } } } }`, `{
   "just_tests_15" : {
     "settings" : {
       "index" : {
@@ -6182,13 +6017,7 @@ func Test_SetIndiceSettings_Normal_Set(t *testing.T) { // {{{
         "creation_date" : "1609029784313",
         "number_of_replicas" : "5",
         "uuid" : "MX5jxasdYQvidcOasdDPdblQ",
-        "version" : {
-          "created" : "6030999"
-        }
-      }
-    }
-  }
-}`, `{
+        "version" : { "created" : "6030999"         } } } } }`, `{
   "just_tests_18" : {
     "settings" : {
       "index" : {
@@ -6197,14 +6026,7 @@ func Test_SetIndiceSettings_Normal_Set(t *testing.T) { // {{{
         "creation_date" : "1679029784313",
         "number_of_replicas" : "50",
         "uuid" : "JX5jxasdYQvidcOasdDPdblQ",
-        "version" : {
-          "created" : "6030999"
-        }
-      }
-    }
-  }
-}`,
-	}
+        "version" : {           "created" : "6030999"} }     } } }`}
 
 	params := []string{`{
         "index.routing.allocation.enable": "none"
@@ -6344,11 +6166,7 @@ func Test_SetIndiceMapping_Normal_Set(t *testing.T) { // {{{
 	// Cluster check
 	srcCheckClusterName := "HaveTryTwo_First_One"
 	srcCheckClusterReq := "_cluster/health?pretty"
-	srcCheckClusterResp := `{
-  "cluster_name" : "HaveTryTwo_First_One",
-  "status" : "green",
-  "number_of_nodes" : 6
-}`
+	srcCheckClusterResp := `{ "cluster_name" : "HaveTryTwo_First_One", "status" : "green", "number_of_nodes" : 6 }`
 
 	// GetIndice
 	srcIndexNames := []string{"just_tests_10", "just_tests_15", "just_tests_18"}
@@ -6377,42 +6195,17 @@ func Test_SetIndiceMapping_Normal_Set(t *testing.T) { // {{{
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "copy_to_name" : {
-            "type" : "keyword",
-            "index" : false
-          },
+          "copy_to_name" : { "type" : "keyword", "index" : false },
           "name" : {
-            "type" : "keyword",
-            "doc_values" : false,
-            "copy_to" : [
-              "copy_to_name"
-            ]
-          }
-        }
-      }
-    }
-  }
-}`, `{
+            "type" : "keyword", "doc_values" : false,
+            "copy_to" : [ "copy_to_name" ] } } } } } }`, `{
   "tests_15" : {
     "mappings" : {
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false
-          }
-        }
-      }
-    }
-  }
-}`, `{
-}`,
-	}
+          "country" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false } } } } } }`, `{ }`}
 
 	srcAfterGetResps := []string{` {
   "tests_10" : {
@@ -6420,86 +6213,32 @@ func Test_SetIndiceMapping_Normal_Set(t *testing.T) { // {{{
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "copy_to_name" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false,
-            "copy_to" : [
-              "copy_to_name"
-            ]
-          },
-          "age" : {
-            "type" : "integer"
-          }
-        }
-      }
-    }
-  }
-}`, `{
+          "copy_to_name" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false,
+            "copy_to" : [ "copy_to_name" ] },
+          "age" : { "type" : "integer" } } } } } }`, `{
   "tests_15" : {
     "mappings" : {
       "_doc" : {
         "dynamic" : "strict",
         "properties" : {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          },
-          "name" : {
-            "type" : "keyword",
-            "doc_values" : false
-          },
-          "hehe" : {
-            "type" : "keyword",
-            "index" : false,
-            "doc_values" : false
-          }
-        }
-      }
-    }
-  }
-}`, `{
+          "country" : { "type" : "keyword", "index" : false },
+          "name" : { "type" : "keyword", "doc_values" : false },
+          "hehe" : { "type" : "keyword", "index" : false, "doc_values" : false } } } } } }`, `{
   "tests_18" : {
     "mappings" : {
       "_doc" : {
         "dynamic" : "strict",
-        "properties" : {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          }
-        }
-      }
-    }
-  }
-}`,
+        "properties" : { "country" : { "type" : "keyword", "index" : false } } } } } }`,
 	}
 
 	params := []string{`{
         "properties": {
-          "age" : {
-            "type" : "integer"
-          }
-        }
-    }`, `{
+          "age" : { "type" : "integer" } } }`, `{
         "properties": {
-          "hehe" : {
-            "type" : "keyword",
-            "index" : false,
-            "doc_values" : false,
-          }
-      }
-    }`, `{
+          "hehe" : { "type" : "keyword", "index" : false, "doc_values" : false, } } }`, `{
         "properties": {
-          "country" : {
-            "type" : "keyword",
-            "index" : false
-          }
-      }
-    }`,
+          "country" : { "type" : "keyword", "index" : false } } }`,
 	}
 
 	srcIndexPutResps := []string{`{
